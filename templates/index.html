@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Nachricht schreiben{% endblock %}
+{% block content %}
+<h1>Sag uns, was dich <strong>beschäftigt.</strong></h1>
+<p class="lead">Niemand erfährt, wer du bist. Deine Nachricht landet bei den Vertrauenspersonen der Schule.</p>
+{% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+<form method="post" action="{{ url_for('senden') }}" class="slot-form">
+  <div class="slot" aria-hidden="true"></div>
+  <label for="kategorie">Worum geht es?</label>
+  <select id="kategorie" name="kategorie" required>
+    <option value="" disabled {% if not selected %}selected{% endif %}>Thema auswählen</option>
+    {% for c in categories %}<option {% if c == selected %}selected{% endif %}>{{ c }}</option>{% endfor %}
+  </select>
+  <label for="text">Deine Nachricht</label>
+  <textarea id="text" name="text" rows="9" maxlength="{{ max_len }}" data-min="{{ min_words }}" required>{{ text or '' }}</textarea>
+  <p class="hint" id="count" aria-live="polite">Bitte schreibe mindestens {{ min_words }} Wörter, damit wir dein Anliegen verstehen.</p>
+  <input type="hidden" name="zt" value="{{ zt }}">
+  <div class="hp" aria-hidden="true"><input name="website" tabindex="-1" autocomplete="off"></div>
+  <p class="hint">Schreibe keine Namen, wenn du anonym bleiben willst. Bei Gefahr für jemandes Leben: Notruf 112. Rat auf Draht: 147.</p>
+  <button type="submit">Anonym absenden</button>
+</form>
+<script src="{{ url_for('static', filename='counter.js') }}" defer></script>
+{% endblock %}

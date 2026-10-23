@@ -1,0 +1,75 @@
+/* Look angelehnt an htlinn.ac.at: weisser Grund, Grossbuchstaben-Titel mit fettem Schlusswort, Pfeil-Links.
+   Die genauen Schulfarben hier eintragen (aktuell Platzhalter): */
+:root{
+  --accent:#1f5fa8;
+  --accent-dark:#164a86;
+  --ink:#1b1f24;
+  --mute:#5c6670;
+  --line:#dfe3e8;
+  --paper:#fff;
+  --band:#f2f4f7;
+  --bad:#b3261e;
+  --good:#1b6b3a;
+  --font:"Helvetica Neue",Arial,"Segoe UI",system-ui,sans-serif;
+}
+*{box-sizing:border-box}
+html{font-family:var(--font);color:var(--ink);background:var(--paper);line-height:1.6}
+body{margin:0;min-height:100vh;display:flex;flex-direction:column}
+.wrap{max-width:60rem;margin:0 auto;padding:0 1.25rem}
+a{color:var(--accent)}
+
+.top{background:var(--paper);border-bottom:1px solid var(--line)}
+.top .wrap{display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap;padding-top:1rem;padding-bottom:1rem}
+.brand{display:flex;align-items:center;gap:.75rem;color:var(--ink);text-decoration:none;font-size:1.3rem;letter-spacing:.02em}
+.brand b{font-weight:800}
+.brand img{height:2.4rem;width:auto}
+.top nav{display:flex;gap:1.5rem;flex-wrap:wrap}
+.top nav a{color:var(--ink);text-decoration:none;font-weight:600;text-transform:uppercase;font-size:.85rem;letter-spacing:.06em;padding:.3rem 0;border-bottom:3px solid transparent}
+.top nav a:hover{border-bottom-color:var(--accent)}
+.claim{background:var(--accent);color:#fff}
+.claim .wrap{padding-top:.55rem;padding-bottom:.55rem;font-weight:700;font-size:.8rem;letter-spacing:.18em;text-transform:uppercase}
+
+main{flex:1;width:100%;max-width:46rem;margin:0 auto;padding:2.5rem 1.25rem 3.5rem}
+h1{font-size:clamp(1.6rem,4.5vw,2.2rem);line-height:1.2;text-transform:uppercase;letter-spacing:.02em;font-weight:400;margin:0 0 .75rem}
+h1 strong{font-weight:800;color:var(--accent)}
+.lead{color:var(--mute);font-size:1.1rem;margin-top:0}
+
+.slot-form{background:var(--band);padding:1.75rem;margin-top:1.5rem;border-top:4px solid var(--accent);position:relative}
+.slot{display:none}
+label{display:block;font-weight:700;margin:1.1rem 0 .35rem;font-size:.9rem;text-transform:uppercase;letter-spacing:.05em}
+label:first-of-type{margin-top:0}
+input,select,textarea{width:100%;font:inherit;padding:.7rem .8rem;border:1px solid #aab3bd;border-radius:0;background:#fff;color:var(--ink)}
+textarea{resize:vertical}
+:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+button,.btn{display:inline-block;margin-top:1.4rem;padding:.8rem 1.6rem;font:inherit;font-weight:700;font-size:.9rem;text-transform:uppercase;letter-spacing:.08em;color:#fff;background:var(--accent);border:0;border-radius:0;cursor:pointer;text-decoration:none}
+button:hover,.btn:hover{background:var(--accent-dark)}
+button:not(.link)::after,.btn::after{content:" \2192"}
+button.link{margin:0;padding:0;background:none;color:var(--accent);font-weight:600;text-transform:none;letter-spacing:0;text-decoration:underline}
+button.link:hover{background:none}
+.hint,.meta{color:var(--mute);font-size:.9rem}
+.hp{position:absolute;left:-9999px}
+.error{color:var(--bad);font-weight:700}.ok{color:var(--good);font-weight:700}
+
+.code{font:700 1.6rem ui-monospace,Menlo,Consolas,monospace;letter-spacing:.08em;background:var(--band);border:2px dashed var(--accent);padding:1.1rem;text-align:center;user-select:all}
+.result{background:var(--band);border-left:4px solid var(--accent);padding:1rem 1.25rem;margin-top:1.5rem}
+.reply,blockquote{white-space:pre-wrap}
+blockquote{margin:1.2rem 0;padding:1rem 1.25rem;background:var(--band);border-left:4px solid var(--ink)}
+
+.bar{display:flex;justify-content:space-between;align-items:baseline;gap:1rem}
+.filters{display:flex;gap:1.2rem;flex-wrap:wrap}
+.filters a{color:var(--ink);text-decoration:none;padding-bottom:.15rem;border-bottom:3px solid transparent}
+.filters a[aria-current]{font-weight:700;border-bottom-color:var(--accent)}
+.list{list-style:none;padding:0;margin:0}.list li{border-bottom:1px solid var(--line)}
+.list a{display:block;padding:.9rem 0;color:var(--ink);text-decoration:none}
+.list a:hover span:last-child{text-decoration:underline}
+.list .meta{display:block}
+
+footer{background:var(--ink);color:#d5dae0;font-size:.85rem}
+footer .wrap{padding-top:1.4rem;padding-bottom:1.4rem}
+
+.chat{display:flex;flex-direction:column;gap:.75rem;margin:1.25rem 0}
+.bubble{max-width:88%;padding:.7rem 1rem;white-space:pre-wrap;word-wrap:break-word;border-left:4px solid var(--ink);background:var(--band)}
+.bubble.me{align-self:flex-end;border-left-color:var(--accent);background:#e8f0fa}
+.bubble.them{align-self:flex-start}
+.who{display:block;font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--mute);margin-bottom:.2rem}
+.badge{display:inline-block;background:var(--accent);color:#fff;font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;padding:.05rem .5rem;margin-left:.4rem}

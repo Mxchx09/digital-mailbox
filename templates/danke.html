@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% block title %}Abgeschickt{% endblock %}
+{% block content %}
+<h1>Deine Nachricht ist <strong>angekommen.</strong></h1>
+<p class="lead">Mit diesem Code kannst du später nachsehen, ob es eine Antwort gibt. Wir können ihn dir nicht erneut anzeigen, notiere ihn dir jetzt.</p>
+<p class="code">{{ code }}</p>
+<p><a class="btn" href="{{ url_for('index') }}">Zurück zum Postfach</a></p>
+{% endblock %}

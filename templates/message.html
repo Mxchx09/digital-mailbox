@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Nachricht {{ m.id }}{% endblock %}
+{% block content %}
+<p><a href="{{ url_for('inbox') }}">Zurück zum Eingang</a></p>
+<h1>{{ m.kategorie }}<strong>.</strong></h1>
+<p class="meta">Eingegangen am {{ m.datum }}{% if m.neu_vom_schueler %} <span class="badge">Rückfrage offen</span>{% endif %}</p>
+{% for f in get_flashed_messages() %}<p class="ok" role="status">{{ f }}</p>{% endfor %}
+<div class="chat">
+  <div class="bubble them"><span class="who">Absender (anonym), {{ m.datum }}</span>{{ m.text }}</div>
+  {% for c in chat %}
+  <div class="bubble {{ 'me' if c.von == 'empfaenger' else 'them' }}"><span class="who">{{ 'Schule' if c.von == 'empfaenger' else 'Absender (anonym)' }}, {{ c.datum }}</span>{{ c.text }}</div>
+  {% endfor %}
+</div>
+<form method="post" class="slot-form">
+  <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+  <label for="antwort">Neue Nachricht an den Absender (leer lassen, wenn nur Status oder Notiz geändert wird)</label>
+  <textarea id="antwort" name="antwort" rows="4"></textarea>
+  <label for="status">Status</label>
+  <select id="status" name="status">{% for s in statuses %}<option {% if s==m.status %}selected{% endif %}>{{ s }}</option>{% endfor %}</select>
+  <label for="notiz">Interne Notiz (nur für Empfänger)</label>
+  <textarea id="notiz" name="notiz" rows="3">{{ m.notiz }}</textarea>
+  <button type="submit">Speichern</button>
+</form>
+<p class="hint">Der Absender sieht Antworten nur, wenn er mit seinem Code nachsieht. Er wird nicht benachrichtigt. Im Verlauf erscheint nur „Schule“, nicht, wer von euch geschrieben hat.</p>
+{% endblock %}

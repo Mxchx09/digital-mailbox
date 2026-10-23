@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Antwort abholen{% endblock %}
+{% block content %}
+<h1>Antwort <strong>abholen.</strong></h1>
+{% if not msg %}
+<form method="post" action="{{ url_for('status') }}" class="slot-form">
+  <label for="code">Dein Code</label>
+  <input id="code" name="code" placeholder="XXXX-XXXX-XXXX-XXXX" autocomplete="off" required>
+  <button type="submit">Nachsehen</button>
+</form>
+{% if searched %}<p class="error" role="alert">Zu diesem Code gibt es keine Nachricht. Prüfe, ob du ihn richtig abgetippt hast.</p>{% endif %}
+{% else %}
+<div class="bar">
+  <p class="meta">Status: <strong>{{ msg.status }}</strong></p>
+  <form method="post" action="{{ url_for('status') }}"><input type="hidden" name="code" value="{{ code }}"><button class="link">Aktualisieren</button></form>
+</div>
+<div class="chat">
+  <div class="bubble me"><span class="who">Du, {{ msg.datum }}</span>{{ msg.text }}</div>
+  {% for c in chat %}
+  <div class="bubble {{ 'me' if c.von == 'schueler' else 'them' }}"><span class="who">{{ 'Du' if c.von == 'schueler' else 'Schule' }}, {{ c.datum }}</span>{{ c.text }}</div>
+  {% endfor %}
+</div>
+{% if not chat %}<p>Noch keine Antwort. Schau später wieder vorbei, du kannst deine Nachricht mit dem Code jederzeit abrufen.</p>{% endif %}
+{% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+<form method="post" action="{{ url_for('status_schreiben') }}" class="slot-form">
+  <input type="hidden" name="code" value="{{ code }}">
+  <label for="text">Rückfrage oder Antwort schreiben</label>
+  <textarea id="text" name="text" rows="4" maxlength="2000" required>{{ text or '' }}</textarea>
+  <button type="submit">Senden</button>
+</form>
+<p class="hint">Wer deinen Code kennt, kann diesen Verlauf lesen und mitschreiben. Gib ihn nicht weiter und lass die Seite nicht auf einem fremden Computer offen.</p>
+{% endif %}
+{% endblock %}

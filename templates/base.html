@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}Postfach{% endblock %} · Schul-Postfach</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<header class="top"><div class="wrap">
+  <a class="brand" href="{{ url_for('index') }}">
+    {# Schul-Logo: Datei nach static/ legen und hier einfuegen, z. B. <img src="{{ url_for('static', filename='logo.svg') }}" alt=""> #}
+    <span>Schul<b>Postfach</b></span>
+  </a>
+  <nav><a href="{{ url_for('index') }}">Nachricht schreiben</a><a href="{{ url_for('status') }}">Antwort abholen</a></nav>
+</div></header>
+<div class="claim"><div class="wrap">Anonym. Vertraulich. Gehört.</div></div>
+<main>{% block content %}{% endblock %}</main>
+<footer><div class="wrap">Wir speichern weder deine IP-Adresse noch deine Uhrzeit, setzen keine Cookies und nutzen kein Tracking.</div></footer>
+</body>
+</html>

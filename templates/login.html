@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Anmelden{% endblock %}
+{% block content %}
+<h1>Verwal<strong>tung.</strong></h1>
+{% for m in get_flashed_messages() %}<p class="error" role="alert">{{ m }}</p>{% endfor %}
+<form method="post" class="slot-form">
+  <input type="hidden" name="csrf" value="{{ csrf_token() }}">
+  <label for="username">Benutzername</label>
+  <input id="username" name="username" autocomplete="username" required>
+  <label for="password">Passwort</label>
+  <input id="password" name="password" type="password" autocomplete="current-password" required>
+  <button type="submit">Anmelden</button>
+</form>
+{% endblock %}

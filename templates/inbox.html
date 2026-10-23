@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Eingang{% endblock %}
+{% block content %}
+<div class="bar"><h1>Ein<strong>gang.</strong></h1>
+<form method="post" action="{{ url_for('logout') }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><button class="link">Abmelden</button></form></div>
+<p class="filters"><a href="{{ url_for('inbox') }}" {% if not flt %}aria-current="true"{% endif %}>Alle</a>
+{% for s in statuses %}<a href="{{ url_for('inbox', status=s) }}" {% if flt==s %}aria-current="true"{% endif %}>{{ s }}</a>{% endfor %}</p>
+{% if not rows %}<p>Keine Nachrichten in dieser Ansicht.</p>{% endif %}
+<ul class="list">
+{% for r in rows %}
+<li><a href="{{ url_for('message', mid=r.id) }}"><span class="meta">{{ r.datum }}, {{ r.kategorie }}, {{ r.status }}{% if r.neu_vom_schueler %} <span class="badge">Rückfrage offen</span>{% endif %}</span>
+<span>{{ r.text[:110] }}{% if r.text|length > 110 %}…{% endif %}</span></a></li>
+{% endfor %}
+</ul>
+{% endblock %}
