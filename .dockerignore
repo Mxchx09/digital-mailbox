@@ -1,0 +1,9 @@
+.git
+.env
+*.db
+*.zip
+venv
+__pycache__
+*.pyc
+README.md
+Add-Content .gitignore "docker-compose.override.yml"

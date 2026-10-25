@@ -4,10 +4,15 @@
 <h1>Antwort <strong>abholen.</strong></h1>
 {% if not msg %}
 <form method="post" action="{{ url_for('status') }}" class="slot-form">
+  <label for="benutzer">Eintrag (nur für den Passwortmanager, kann leer bleiben)</label>
+  <input id="benutzer" name="benutzer" type="text" placeholder="z. B. Postfach K7M2" autocomplete="username">
   <label for="code">Dein Code</label>
-  <input id="code" name="code" placeholder="XXXX-XXXX-XXXX-XXXX" autocomplete="off" required>
+  <input id="code" name="code" type="password" placeholder="XXXX-XXXX-XXXX-XXXX" autocomplete="current-password" required>
+  <label class="inline"><input type="checkbox" id="zeigen"> Code anzeigen</label>
   <button type="submit">Nachsehen</button>
+  <p class="hint">Hast du den Code im Browser gespeichert, wählst du ihn hier einfach aus.</p>
 </form>
+<script src="{{ url_for('static', filename='code.js') }}" defer></script>
 {% if searched %}<p class="error" role="alert">Zu diesem Code gibt es keine Nachricht. Prüfe, ob du ihn richtig abgetippt hast.</p>{% endif %}
 {% else %}
 <div class="bar">

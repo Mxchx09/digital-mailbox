@@ -1,22 +1,5 @@
-# Virtual Environment
-venv/
-env/
-.venv/
-
-# Python & Caches
-__pycache__/
-*.py[cod]
-.mypy_cache/
-
-# Environment variables & secrets
-.env
-
-# SQLite / Database
-*.db
 postfach.db
-
-# OS / Editor files
-.vscode/
-.idea/
-.DS_Store
-Thumbs.db
+*.db
+venv/
+__pycache__/
+.env

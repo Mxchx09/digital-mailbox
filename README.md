@@ -14,12 +14,13 @@ Technik: Python, Flask, SQLite. Keine externen Dienste, keine Fremd-Skripte, kei
 4. [Konfiguration](#konfiguration)
 5. [Befehle für Zugänge und Daten](#befehle-für-zugänge-und-daten)
 6. [Schutz vor Bots und Unsinn](#schutz-vor-bots-und-unsinn)
-7. [Betrieb auf dem Schulserver](#betrieb-auf-dem-schulserver)
-8. [Wartung](#wartung)
-9. [Sicherheit: Grenzen und Empfehlungen](#sicherheit-grenzen-und-empfehlungen)
-10. [Datenschutz und Organisation](#datenschutz-und-organisation)
-11. [Design anpassen](#design-anpassen)
-12. [Projektstruktur](#projektstruktur)
+7. [Mit Docker starten](#mit-docker-starten)
+8. [Betrieb auf dem Schulserver](#betrieb-auf-dem-schulserver)
+9. [Wartung](#wartung)
+10. [Sicherheit: Grenzen und Empfehlungen](#sicherheit-grenzen-und-empfehlungen)
+11. [Datenschutz und Organisation](#datenschutz-und-organisation)
+12. [Design anpassen](#design-anpassen)
+13. [Projektstruktur](#projektstruktur)
 
 ---
 
@@ -29,6 +30,7 @@ Technik: Python, Flask, SQLite. Keine externen Dienste, keine Fremd-Skripte, kei
 - Nachricht mit Thema und Text abschicken.
 - Danach erscheint ein einmaliger **Rückmeldecode** (z. B. `K7M2-XQ4P-...`). Damit lässt sich unter „Antwort abholen“ der Verlauf einsehen.
 - **Chat über den Code:** Schreibt ein Empfänger zurück oder hat Fragen, sieht der Absender das im Verlauf und kann dort antworten. Der Verlauf ist wie ein Postfach aufgebaut, nicht in Echtzeit: Beide Seiten müssen nachsehen (der Absender mit Code, „Aktualisieren“ lädt neu). Der Absender wird nicht benachrichtigt, das würde die Anonymität aufheben.
+- **Im Browser speichern:** Auf der Bestätigungsseite kann der Absender den Code freiwillig in seinem Browser oder Passwortmanager (Google, Apple, Firefox) ablegen. Der Eintrag heißt „Postfach“ plus die ersten vier Zeichen des Codes, damit mehrere Nachrichten nicht überschreiben. Unter „Antwort abholen“ lässt sich der Code dann automatisch einfügen. Ob und wie der Browser speichert, entscheidet er selbst.
 - Der Code wird nur als Hash gespeichert und nie in einer URL angezeigt. Geht er verloren, kann er nicht wiederhergestellt werden. Wer den Code kennt, kann den Verlauf lesen und mitschreiben.
 
 **Für Empfänger** (eigener Zugang pro Person, unter `/verwaltung`)
@@ -107,8 +109,8 @@ Ohne festen `SECRET_KEY` werden Empfänger bei jedem Neustart ausgeloggt, und be
 
 | Name | Bedeutung | Standard |
 |---|---|---|
-| `MIN_WORDS` | Mindestanzahl Wörter pro Nachricht | 15 |
-| `MIN_UNIQUE` | davon mindestens so viele verschiedene Wörter | 8 |
+| `MIN_WORDS` | Mindestanzahl Wörter pro Nachricht | 5 |
+| `MIN_UNIQUE` | davon mindestens so viele verschiedene Wörter | 3 |
 | `MIN_SECONDS` | so lange muss das Formular mindestens offen sein | 5 |
 | `MAX_AGE` | nach so vielen Sekunden gilt das Formular als abgelaufen | 86400 |
 | `MAX_LEN` | maximale Zeichenzahl pro Nachricht | 5000 |
@@ -162,6 +164,52 @@ Alle Maßnahmen kommen ohne IP-Speicherung, Cookies oder Drittanbieter aus (Dien
 
 Grenzen: Ein gezielter Angreifer, der das Formular lädt, wartet und sinnvoll klingende Texte schickt, wird davon nicht gestoppt. Das globale Limit kann außerdem von Bots ausgelastet werden und blockiert dann auch echte Schüler. Als nächste Stufe wäre ein „Proof-of-Work“ möglich (der Browser löst vor dem Absenden eine kleine Rechenaufgabe), ebenfalls ohne Tracking. Offensichtlichen Unsinn markierst du im Eingang einfach als „erledigt“ oder löschst ihn mit `delete-message`.
 
+## Mit Docker starten
+
+Der Container enthält die Anwendung samt Gunicorn und läuft mit einem Benutzer ohne Rechte, schreibgeschütztem Dateisystem und ohne Zugriffslogs. Die Datenbank liegt in einem eigenen Volume (`postfach-data`) und bleibt bei Neustarts und Updates erhalten.
+
+**1. Einrichten** (einmalig, im Projektordner)
+
+```bash
+cp .env.example .env          # Windows: copy .env.example .env
+docker run --rm python:3.12-slim python -c "import secrets; print(secrets.token_hex(32))"
+```
+
+Den ausgegebenen Wert in `.env` bei `SECRET_KEY=` eintragen.
+
+**2. Starten**
+
+```bash
+docker compose up -d --build
+docker compose ps             # Status sollte nach kurzer Zeit "healthy" zeigen
+```
+
+**3. Ersten Admin anlegen**
+
+```bash
+docker compose exec postfach flask --app app create-user anna --role admin
+```
+
+Alle Befehle aus dem Abschnitt „Befehle für Zugänge und Daten“ funktionieren genauso, mit `docker compose exec postfach flask --app app ...` davor.
+
+**4. Aufrufen:** Formular unter http://localhost:8000, Verwaltung unter http://localhost:8000/verwaltung/login.
+
+**Nützliche Befehle**
+
+| Befehl | Wirkung |
+|---|---|
+| `docker compose logs --tail 50` | letzte Meldungen (enthält keine Zugriffe) |
+| `docker compose restart` | neu starten |
+| `docker compose down` | stoppen und Container entfernen, **Daten bleiben erhalten** |
+| `docker compose down -v` | stoppen und **auch die Datenbank löschen** |
+| `docker compose up -d --build` | nach Änderungen am Code neu bauen und starten |
+| `docker compose exec postfach flask --app app backup /data/backup.db` | Sicherung im Volume anlegen |
+| `docker compose cp postfach:/data/backup.db .` | Sicherung auf den Rechner kopieren |
+
+**Test auf einem zweiten Gerät (z. B. Handy im Heimnetz):** in `.env` `BIND=0.0.0.0` setzen, mit `docker compose up -d` neu starten und `http://<IP-des-Rechners>:8000` öffnen. `HTTPS` bleibt dabei auf `0`, sonst funktioniert der Login nicht. Danach `BIND` wieder auf `127.0.0.1` stellen. Nie ohne HTTPS-Proxy ins Internet stellen.
+
+**Im Betrieb:** `HTTPS=1` setzen und `BIND=127.0.0.1` lassen. Davor kommt wie unten beschrieben nginx oder Apache mit Zertifikat und ohne Zugriffslog, der auf `http://127.0.0.1:8000` weiterleitet. Der Abschnitt zu systemd und Gunicorn entfällt dann, Docker übernimmt Start und Neustart (`restart: unless-stopped`).
+
 ## Betrieb auf dem Schulserver
 
 Gunicorn läuft hinter einem Webserver (nginx oder Apache), der HTTPS übernimmt. **Entscheidend für die Anonymität: keine Zugriffslogs mit IP-Adressen.**
@@ -170,7 +218,7 @@ Gunicorn läuft hinter einem Webserver (nginx oder Apache), der HTTPS übernimmt
 
 ```bash
 SECRET_KEY=<langer-zufallswert> HTTPS=1 DB_PATH=/var/lib/schulpostfach/postfach.db \
-  gunicorn -w 1 --threads 4 -b 127.0.0.1:8000 --access-logfile /dev/null app:app
+  gunicorn -w 1 --threads 4 -b 127.0.0.1:8000 --access-logfile /dev/null --no-control-socket app:app
 ```
 
 Mit `-w 1 --threads 4` laufen die Zähler im Arbeitsspeicher (Login-Sperre, Limit, Duplikat-Filter) in einem gemeinsamen Prozess. Mit mehreren Workern gelten sie je Worker.
@@ -186,7 +234,7 @@ After=network.target
 User=postfach
 WorkingDirectory=/opt/schulpostfach
 EnvironmentFile=/etc/schulpostfach.env
-ExecStart=/opt/schulpostfach/venv/bin/gunicorn -w 1 --threads 4 -b 127.0.0.1:8000 --access-logfile /dev/null app:app
+ExecStart=/opt/schulpostfach/venv/bin/gunicorn -w 1 --threads 4 -b 127.0.0.1:8000 --access-logfile /dev/null --no-control-socket app:app
 Restart=on-failure
 
 [Install]
@@ -242,6 +290,7 @@ Bereits umgesetzt: gehashte Passwörter, parametrisierte Datenbankabfragen (kein
 
 Bekannte Grenzen:
 - **Der Code ist der einzige Schlüssel zum Chat.** Wer ihn kennt oder auf einem geteilten Gerät sieht, kann den Verlauf lesen und mitschreiben. Schüler sollten darauf hingewiesen werden (steht auch auf der Seite).
+- **Speichern im Browser hat Folgen:** Der Code liegt dann im Passwortmanager (bei Google-Konten synchronisiert) und der Eintrag zeigt die Adresse des Postfachs. Wer Zugriff auf Gerät oder Konto hat (z. B. Familie, Mitschüler am geteilten Gerät), kann den Chat lesen und sieht, dass das Postfach benutzt wurde. Die Seite weist darauf hin und rät von Schul-PCs ab.
 - **Keine Benachrichtigung der Absender:** Antworten werden nur sichtbar, wenn der Absender mit seinem Code nachsieht. Das ist Absicht, weil E-Mail oder Push die Anonymität aufheben würden.
 - **Keine 2-Faktor-Anmeldung.** Ein erratenes oder wiederverwendetes Passwort genügt, um alle Nachrichten zu lesen.
 - **Die Login-Sperre kann missbraucht werden:** Wer einen Benutzernamen kennt, kann diesen Account durch absichtliche Fehlversuche 5 Minuten sperren.
@@ -275,11 +324,17 @@ Modern und schlicht: heller Hintergrund, abgerundete Karten, Chat-Blasen, ein fa
 
 ```
 app.py               Anwendung: Routen, Prüfungen, Befehle
+Dockerfile           Container-Bauanleitung
+docker-compose.yml   Start mit Docker (Volume, Einstellungen)
+.env.example         Vorlage für die Einstellungen (nach .env kopieren)
+.dockerignore        Dateien, die nicht in den Container kommen
+.gitignore           Dateien, die nicht ins Repository kommen
 requirements.txt     Abhängigkeiten (Flask, Gunicorn)
 static/
   style.css          Design
   logo.svg           Schul-Logo
   counter.js         Live-Wortzähler im Formular
+  code.js            Code anzeigen/verbergen, Speichern im Browser
 templates/
   base.html          Rahmen (Kopf, Claim, Fuß)
   index.html         Formular für Schüler

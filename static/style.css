@@ -98,3 +98,7 @@ footer .wrap{padding-top:1.3rem;padding-bottom:1.3rem}
   .slot-form{padding:1.25rem}
   .bubble{max-width:94%}
 }
+
+label.inline{display:flex;align-items:center;gap:.5rem;font-weight:400;margin-top:.6rem}
+label.inline input{width:auto}
+input[readonly]{background:var(--bg);color:var(--mute)}
