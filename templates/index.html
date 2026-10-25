@@ -1,11 +1,13 @@
 {% extends "base.html" %}
 {% block title %}Nachricht schreiben{% endblock %}
 {% block content %}
-<h1>Sag uns, was dich <strong>beschäftigt.</strong></h1>
-<p class="lead">Niemand erfährt, wer du bist. Deine Nachricht landet bei den Vertrauenspersonen der Schule.</p>
+<section>
+  <h1>Sag uns, was dich <strong>beschäftigt.</strong></h1>
+  <p class="lead">Niemand erfährt, wer du bist. Deine Nachricht landet bei den Vertrauenspersonen der Schule.</p>
+  <ul class="chips"><li>Keine Anmeldung</li><li>Kein Tracking</li><li>Antwort mit deinem Code</li></ul>
+</section>
 {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
 <form method="post" action="{{ url_for('senden') }}" class="slot-form">
-  <div class="slot" aria-hidden="true"></div>
   <label for="kategorie">Worum geht es?</label>
   <select id="kategorie" name="kategorie" required>
     <option value="" disabled {% if not selected %}selected{% endif %}>Thema auswählen</option>

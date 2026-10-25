@@ -32,12 +32,12 @@ app.config.update(
 )
 DB_PATH = os.environ.get("DB_PATH", "postfach.db")
 MAX_LEN = 5000
-MIN_WORDS = 15   # Mindestanzahl Woerter pro Nachricht
+MIN_WORDS = 5   # Mindestanzahl Woerter pro Nachricht
 CHAT_MAX = 2000      # maximale Zeichenzahl pro Chat-Nachricht
 CHAT_BURST = 3       # so viele Nachrichten in Folge darf der Absender schicken, bevor er auf eine Antwort wartet
 MIN_SECONDS = 5      # so lange muss das Formular mindestens offen gewesen sein (Bot-Schutz)
 MAX_AGE = 24 * 3600  # aelter als 24 h: Formular gilt als abgelaufen
-MIN_UNIQUE = 8   # davon mindestens so viele verschiedene (gegen 'asdf asdf asdf ...')
+MIN_UNIQUE = 3   # davon mindestens so viele verschiedene (gegen 'asdf asdf asdf ...')
 CATEGORIES = ["Mobbing / Streit", "Unterricht", "Organisation", "Sonstiges"]
 STATUS = ["neu", "in Bearbeitung", "erledigt"]
 CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # ohne 0/O/1/I
@@ -394,8 +394,8 @@ def _vacuum():
 
 
 def _check_pw(pw):
-    if len(pw) < 10:
-        raise click.ClickException("Das Passwort braucht mindestens 10 Zeichen.")
+    if len(pw) < 8:
+        raise click.ClickException("Das Passwort braucht mindestens 8 Zeichen.")
 
 
 def _user(conn, name):

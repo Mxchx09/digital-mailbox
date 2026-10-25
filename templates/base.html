@@ -3,19 +3,20 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#003c8b">
 <title>{% block title %}Postfach{% endblock %} · Schul-Postfach</title>
 <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
+<div class="stripe" aria-hidden="true"></div>
 <header class="top"><div class="wrap">
   <a class="brand" href="{{ url_for('index') }}">
-    {# Schul-Logo: Datei nach static/ legen und hier einfuegen, z. B. <img src="{{ url_for('static', filename='logo.svg') }}" alt=""> #}
-    <span>Schul<b>Postfach</b></span>
+    <img src="{{ url_for('static', filename='logo.svg') }}" alt="HTL Anichstraße" width="201" height="40">
+    <span class="brand-sub">Postfach</span>
   </a>
   <nav><a href="{{ url_for('index') }}">Nachricht schreiben</a><a href="{{ url_for('status') }}">Antwort abholen</a></nav>
 </div></header>
-<div class="claim"><div class="wrap">Anonym. Vertraulich. Gehört.</div></div>
 <main>{% block content %}{% endblock %}</main>
-<footer><div class="wrap">Wir speichern weder deine IP-Adresse noch deine Uhrzeit, setzen keine Cookies und nutzen kein Tracking.</div></footer>
+<footer><div class="wrap">Diese Seite speichert weder deine IP-Adresse noch die Uhrzeit, setzt keine Cookies und nutzt kein Tracking.</div></footer>
 </body>
 </html>
