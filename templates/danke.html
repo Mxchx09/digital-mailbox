@@ -2,7 +2,18 @@
 {% block title %}Abgeschickt{% endblock %}
 {% block content %}
 <h1>Deine Nachricht ist <strong>angekommen.</strong></h1>
-<p class="lead">Mit diesem Code kannst du später nachsehen, ob es eine Antwort gibt. Wir können ihn dir nicht erneut anzeigen, notiere ihn dir jetzt.</p>
+<p class="lead">Mit diesem Code kannst du später nachsehen, ob es eine Antwort gibt, und Rückfragen stellen. Wir können ihn dir nicht erneut anzeigen. Notiere ihn jetzt oder speichere ihn im Browser.</p>
 <p class="code">{{ code }}</p>
-<p><a class="btn" href="{{ url_for('index') }}">Zurück zum Postfach</a></p>
+
+<form method="post" action="{{ url_for('status') }}" class="slot-form" id="speichern">
+  <label for="benutzer">Name des Eintrags</label>
+  <input id="benutzer" name="benutzer" type="text" value="Postfach {{ code[:4] }}" autocomplete="username" readonly>
+  <label for="code">Code</label>
+  <input id="code" name="code" type="password" value="{{ code }}" autocomplete="current-password" required>
+  <label class="inline"><input type="checkbox" id="zeigen"> Code anzeigen</label>
+  <button type="submit">Code speichern und Verlauf öffnen</button>
+  <p class="hint">Dein Browser oder Passwortmanager (z. B. Google, Apple, Firefox) fragt dann, ob er den Code speichern soll. Das ist freiwillig. Gespeicherte Einträge liegen bei dir und werden je nach Einstellung mit deinem Konto auf andere Geräte übertragen. Wer Zugriff auf dein Gerät oder Konto hat, kann deine Nachricht samt Chat lesen und sieht, dass du dieses Postfach benutzt hast. Speichere ihn <strong>nicht</strong> auf Schul-PCs oder fremden Geräten.</p>
+</form>
+<p><a href="{{ url_for('index') }}">Zurück zum Postfach</a></p>
+<script src="{{ url_for('static', filename='code.js') }}" defer></script>
 {% endblock %}

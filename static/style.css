@@ -18,7 +18,7 @@
 html{font-family:var(--font);color:var(--ink);background:#fff;line-height:1.6;-webkit-text-size-adjust:100%}
 body{margin:0;min-height:100vh;display:flex;flex-direction:column;background:linear-gradient(var(--bg),#fff 380px) no-repeat}
 a{color:var(--accent)}
-.wrap{max-width:62rem;margin:0 auto;padding:0 1.25rem}
+.wrap{max-width:62rem;margin:0 auto;padding:0 1.25rem; text-align: center;}
 
 /* Kopf */
 .stripe{height:4px;background:linear-gradient(90deg,#c56591 0 20%,#a7c56f 20% 40%,#ec6f4f 40% 60%,#657aba 60% 80%,#ecbf3e 80% 100%)}
@@ -98,3 +98,7 @@ footer .wrap{padding-top:1.3rem;padding-bottom:1.3rem}
   .slot-form{padding:1.25rem}
   .bubble{max-width:94%}
 }
+
+label.inline{display:flex;align-items:center;gap:.5rem;font-weight:400;margin-top:.6rem}
+label.inline input{width:auto}
+input[readonly]{background:var(--bg);color:var(--mute)}
