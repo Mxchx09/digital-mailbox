@@ -3,6 +3,7 @@
 Anonymes digitales Postfach für Schüler: Probleme und Feedback melden. Ausgewählte Verantwortliche (z. B. Vertrauenslehrer, SV) lesen die Nachrichten und können antworten. Mit einem zufälligen Code holt der Absender die Antwort ab und kann Rückfragen stellen, ohne dass jemand erfährt, wer er ist. So entsteht ein anonymer Chat-Verlauf.
 
 ---
+
 ## Inhaltsverzeichnis
 
 - [Funktionen](#funktionen)
@@ -13,17 +14,20 @@ Anonymes digitales Postfach für Schüler: Probleme und Feedback melden. Ausgew�
 - [Docker](#docker)
 - [Beispiel: Reverse Proxy ohne Logs](#beispiel-reverse-proxy-ohne-logs)
 - [Wartung](#wartung)
+
 ---
 
 ## Funktionen
 
-**Für Schüler** 
+**Für Schüler**
+
 - Nachricht mit Thema und Text abschicken.
-- Danach erscheint ein einmaliger **Rückmeldecode** (z. B. `K7M2-XQ4P-...`). Damit lässt sich unter „Antwort abholen“ der Verlauf einsehen. Der Rückmeldecode kann zum Beispiel im Passwortmaanager (Google, Firefox, Bitwarden, KeePass) gespeichert werden.
+- Danach erscheint ein einmaliger **Rückmeldecode** (z. B. `K7M2-XQ4P-...`). Damit lässt sich unter „Antwort abholen“ der Verlauf einsehen. Der Rückmeldecode kann zum Beispiel im Passwortmanager (Google, Firefox, Bitwarden, KeePass) gespeichert werden.
 - **Chat über den Code:** Schreibt ein Empfänger zurück oder hat Fragen, sieht der Absender das im Verlauf und kann dort antworten. Der Verlauf ist wie ein Postfach aufgebaut, nicht in Echtzeit: Beide Seiten müssen nachsehen (der Absender mit Code, „Aktualisieren“ lädt neu). Der Absender wird nicht benachrichtigt.
 - Der Code wird nur als Hash gespeichert und nie in einer URL angezeigt. Geht er verloren, kann er nicht wiederhergestellt werden. Wer den Code kennt, kann den Verlauf lesen und mitschreiben.
 
 **Für Empfänger** (eigener Zugang pro Person, unter `/verwaltung`)
+
 - Eingang mit Filter nach Status (neu / in Bearbeitung / erledigt).
 - Pro Nachricht: Verlauf lesen, dem Absender schreiben, Status ändern, interne Notiz.
 - **Offene Rückfragen** erscheinen mit einem Hinweis oben im Eingang und bleiben markiert, bis ein Empfänger antwortet oder die Nachricht auf „erledigt“ setzt.
@@ -42,11 +46,9 @@ Rollen: `admin` und `empfaenger`.
 | Hash des Rückmeldecodes | der Rückmeldecode selbst |
 | Empfänger-Zugänge mit gehashten Passwörtern | Tracking, Statistik, externe Schriften |
 
-Wichtig: Die Anwendung selbst schreibt keine IP-Adressen. **Webserver, Proxy und Firewall der Schule tun das aber oft von sich aus, kann aber ausgeschaltet werden.** Mehr dazu in
-[Beispiel: Reverse-Proxy ohne Logs](#beispiel-reverse-proxy-ohne-logs).
+Wichtig: Die Anwendung selbst schreibt keine IP-Adressen. **Webserver, Proxy und Firewall der Schule tun das aber oft von sich aus.** Mehr dazu in [Beispiel: Reverse-Proxy ohne Logs](#beispiel-reverse-proxy-ohne-logs).
 
-
-**Für Schüler:** Alternativ kann man seine Nachricht über Mobile Daten senden. Die IP-Addressen von Mobilen Daten sind unter CGNAT und können nicht auf ein einzelnes Gerät zurückverfolgt werden.**
+**Für Schüler:** Alternativ kann man seine Nachricht über Mobile Daten senden. Die IP-Adressen von mobilen Daten sind unter CGNAT und können nicht auf ein einzelnes Gerät zurückverfolgt werden.
 
 ## Schnellstart (Entwicklung)
 
@@ -126,7 +128,7 @@ Beim Löschen werden die Inhalte in der Datei überschrieben und die Datenbank a
 
 ## Docker
 
-Die App wird mithilfe von Docker gehostet. Die Datenbank liegt im eigenen Volume damit sie nicht beim container-neustart gelöscht wird.
+Die App wird mithilfe von Docker gehostet. Die Datenbank liegt im eigenen Volume, damit sie nicht beim Container-Neustart gelöscht wird.
 
 **1. Einrichtung**
 
@@ -150,13 +152,13 @@ docker compose ps # Status sollte nach kurzer Zeit "healthy" zeigen
 docker compose exec postfach flask --app app create-user anna --role admin
 ```
 
-**Wichtig: ist der Benutzer nicht in der 'docker' Gruppe, müssen die Befehle mit `sudo` oder als root ausgeführt werden.**
+**Wichtig: ist der Benutzer nicht in der 'docker' Gruppe, müssen die Befehle mit `sudo` bzw. als root ausgeführt werden.**
 
 Alle Befehle aus dem Abschnitt „Befehle für Zugänge und Daten“ funktionieren genauso, mit `docker compose exec postfach flask --app app <Befehl>` davor.
 
 **4. Aufrufen:** Formular unter http://localhost:8000, Verwaltung unter http://localhost:8000/verwaltung/login.
 
-**Im Betrieb:** `HTTPS=1` setzen und `BIND=127.0.0.1` lassen. Davor kommt wie unten beschrieben nginx oder Apache mit Zertifikat und ohne Zugriffslog, der auf `http://127.0.0.1:8000` weiterleitet. Der Abschnitt zu systemd und Gunicorn entfällt dann, Docker übernimmt Start und Neustart (`restart: unless-stopped`).
+**Im Betrieb:** `HTTPS=1` setzen und `BIND=127.0.0.1` lassen. Davor kommt wie unten beschrieben nginx oder Apache mit Zertifikat und ohne Zugriffslog, der auf `http://127.0.0.1:8000` weiterleitet. Docker übernimmt Start und Neustart (`restart: unless-stopped`).
 
 ## Beispiel: Reverse Proxy ohne Logs
 
@@ -184,10 +186,11 @@ Bei anderen Proxies wie Apache oder Caddy muss man die jeweilige Konfiguration a
 
 ## Wartung
 
-- **Backups:** `flask --app app backup` legt eine Kopie an. Sie enthält alle Nachrichten und gehört genauso geschützt wie die Datenbank. 
+- **Backups:** `flask --app app backup` legt eine Kopie an. Sie enthält alle Nachrichten und gehört genauso geschützt wie die Datenbank.
 - **Alte Nachrichten automatisch löschen** (Datensparsamkeit), z. B. jeden Sonntag um 3 Uhr per Cron:
 
+  ```cron
+  0 3 * * 0 cd <Pfad zum Projektordner> && DB_PATH=<Pfad zur Datenbank> .venv/bin/flask --app app purge --days 180 --only-done --yes
   ```
-  0 3 * * 0 cd /opt/schulpostfach && DB_PATH=/var/lib/schulpostfach/postfach.db venv/bin/flask --app app purge --days 180 --only-done --yes
-  ```
+
 - **Alle Empfänger abmelden:** `SECRET_KEY` ändern und neu starten.
