@@ -10,35 +10,57 @@ import hashlib
 import hmac
 import logging
 import os
+import re
 import secrets
+import smtplib
 import sqlite3
+import ssl
+import threading
 import time
 from contextlib import contextmanager
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
+from email.message import EmailMessage
+from email.utils import formatdate
 from functools import wraps
+from zoneinfo import ZoneInfo
 
 import click
 from flask import (Flask, abort, flash, g, redirect, render_template, request,
                    session, url_for)
-from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.middleware.proxy_fix import ProxyFix
+from werkzeug.security import check_password_hash, generate_password_hash
 
 app = Flask(__name__)
+# Hinter dem Reverse Proxy der Schule (z. B. unter /postfach): Unterpfad und Protokoll aus den
+# X-Forwarded-Headern uebernehmen. x_for bleibt bewusst aus, die App soll nie eine Client-IP sehen.
 app.wsgi_app = ProxyFix(
     app.wsgi_app,
     x_prefix=1,
     x_proto=1,
 )
-app.config["SESSION_COOKIE_PATH"] ="/postfach"
 
 app.config.update(
     SECRET_KEY=os.environ.get("SECRET_KEY") or secrets.token_hex(32),
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Strict",
     SESSION_COOKIE_SECURE=os.environ.get("HTTPS", "0") == "1",
+    SESSION_COOKIE_PATH=os.environ.get("COOKIE_PATH", "/"),  # auf dem Schulserver: /postfach
     MAX_CONTENT_LENGTH=32 * 1024,
 )
 DB_PATH = os.environ.get("DB_PATH", "postfach.db")
+
+# --- E-Mail-Benachrichtigung (alles per Umgebungsvariable, nie ins Repo) ---
+SMTP_HOST = os.environ.get("SMTP_HOST", "")
+SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
+SMTP_SECURITY = os.environ.get("SMTP_SECURITY", "starttls")  # starttls | ssl | none
+SMTP_USER = os.environ.get("SMTP_USER", "")
+SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")
+SMTP_FROM = os.environ.get("SMTP_FROM", "")
+BASE_URL = os.environ.get("BASE_URL", "http://localhost:8000").rstrip("/")
+# Taeglicher automatischer Versand (laeuft im Gunicorn-Prozess). Leer = aus. Mehrere Zeiten: "07:00,15:00"
+NOTIFY_AT = os.environ.get("NOTIFY_AT", "")
+NOTIFY_TZ = os.environ.get("NOTIFY_TZ", "Europe/Vienna")
+
 MAX_LEN = 5000
 MIN_WORDS = 5    # Mindestanzahl Woerter pro Nachricht
 CHAT_MAX = 2000      # maximale Zeichenzahl pro Chat-Nachricht
@@ -62,7 +84,8 @@ CREATE TABLE IF NOT EXISTS messages (
     datum TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'neu',
     notiz TEXT NOT NULL DEFAULT '',
-    neu_vom_schueler INTEGER NOT NULL DEFAULT 0
+    neu_vom_schueler INTEGER NOT NULL DEFAULT 0,
+    mail_gesendet INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS chat (
     id INTEGER PRIMARY KEY,
@@ -75,7 +98,8 @@ CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY,
     username TEXT NOT NULL UNIQUE,
     pw_hash TEXT NOT NULL,
-    role TEXT NOT NULL DEFAULT 'empfaenger'
+    role TEXT NOT NULL DEFAULT 'empfaenger',
+    email TEXT NOT NULL DEFAULT ''
 );
 """
 
@@ -86,6 +110,12 @@ def migrate(conn):
     cols = {r[1] for r in conn.execute("PRAGMA table_info(messages)")}
     if "neu_vom_schueler" not in cols:
         conn.execute("ALTER TABLE messages ADD COLUMN neu_vom_schueler INTEGER NOT NULL DEFAULT 0")
+    if "mail_gesendet" not in cols:
+        conn.execute("ALTER TABLE messages ADD COLUMN mail_gesendet INTEGER NOT NULL DEFAULT 0")
+        conn.execute("UPDATE messages SET mail_gesendet=1")  # alte Nachrichten nicht nachmelden
+    ucols = {r[1] for r in conn.execute("PRAGMA table_info(users)")}
+    if "email" not in ucols:
+        conn.execute("ALTER TABLE users ADD COLUMN email TEXT NOT NULL DEFAULT ''")
     if "antwort" in cols:  # fruehere Einzelantworten in den Verlauf uebernehmen
         for mid, txt in conn.execute("SELECT id, antwort FROM messages WHERE antwort != ''").fetchall():
             conn.execute("INSERT INTO chat (message_id, von, text, datum) VALUES (?, 'empfaenger', ?, ?)",
@@ -296,7 +326,7 @@ def status_schreiben():
     db().execute("INSERT INTO chat (message_id, von, text, datum) VALUES (?, 'schueler', ?, ?)",
                  (msg["id"], text, date.today().isoformat()))
     # Rueckfrage markieren; war die Nachricht schon erledigt, wird sie wieder geoeffnet
-    db().execute("UPDATE messages SET neu_vom_schueler=1, "
+    db().execute("UPDATE messages SET neu_vom_schueler=1, mail_gesendet=0, "
                  "status=CASE WHEN status='erledigt' THEN 'in Bearbeitung' ELSE status END WHERE id=?",
                  (msg["id"],))
     db().commit()
@@ -379,6 +409,37 @@ def message(mid):
 
 
 # ---------- Befehle: flask --app app <befehl> ----------
+def _check_email(addr):
+    addr = addr.strip()
+    if addr and not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", addr):
+        raise click.ClickException("Das sieht nicht nach einer E-Mail-Adresse aus.")
+    return addr
+
+
+def send_mails(recipients, subject, body):
+    """Schickt jedem Empfaenger eine eigene Mail ueber den SMTP-Server aus den Einstellungen."""
+    if not SMTP_HOST or not SMTP_FROM:
+        raise RuntimeError("SMTP_HOST und SMTP_FROM sind nicht gesetzt.")
+    ctx = ssl.create_default_context()
+    if SMTP_SECURITY == "ssl":
+        smtp = smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=15, context=ctx)
+    else:
+        smtp = smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=15)
+    with smtp:
+        if SMTP_SECURITY == "starttls":
+            smtp.starttls(context=ctx)
+        if SMTP_USER:
+            smtp.login(SMTP_USER, SMTP_PASSWORD)
+        for addr in recipients:
+            msg = EmailMessage()
+            msg["From"] = SMTP_FROM
+            msg["To"] = addr
+            msg["Subject"] = subject
+            msg["Date"] = formatdate(localtime=True)
+            msg.set_content(body)
+            smtp.send_message(msg)
+
+
 def _name(s):
     return s.strip().lower()
 
@@ -424,14 +485,16 @@ yes_option = click.option("--yes", is_flag=True, help="Ohne Rueckfrage ausfuehre
 @app.cli.command("create-user")
 @click.argument("username")
 @click.option("--role", type=ROLES, default="empfaenger")
+@click.option("--email", default="", help="E-Mail-Adresse fuer Benachrichtigungen (optional)")
 @click.password_option()
-def create_user(username, role, password):
+def create_user(username, role, email, password):
     """Neuen Zugang anlegen."""
     _check_pw(password)
+    email = _check_email(email)
     try:
         with cli_db() as c:
-            c.execute("INSERT INTO users (username, pw_hash, role) VALUES (?,?,?)",
-                      (_name(username), generate_password_hash(password), role))
+            c.execute("INSERT INTO users (username, pw_hash, role, email) VALUES (?,?,?,?)",
+                      (_name(username), generate_password_hash(password), role, email))
     except sqlite3.IntegrityError:
         raise click.ClickException("Diesen Benutzernamen gibt es schon.")
     click.echo(f"Zugang '{username}' ({role}) angelegt.")
@@ -441,9 +504,9 @@ def create_user(username, role, password):
 def list_users():
     """Alle Zugaenge anzeigen."""
     with cli_db() as c:
-        rows = c.execute("SELECT username, role FROM users ORDER BY username").fetchall()
-    for name, role in rows:
-        click.echo(f"{name}  ({role})")
+        rows = c.execute("SELECT username, role, email FROM users ORDER BY username").fetchall()
+    for name, role, email in rows:
+        click.echo(f"{name}  ({role})  {email or '-'}")
     if not rows:
         click.echo("Noch keine Zugaenge angelegt.")
 
@@ -594,3 +657,130 @@ def backup(ziel):
     dst.close()
     os.chmod(ziel, 0o600)
     click.echo(f"Sicherung: {ziel}")
+
+
+@app.cli.command("set-email")
+@click.argument("username")
+@click.argument("adresse", required=False, default="")
+def set_email(username, adresse):
+    """E-Mail-Adresse setzen (ohne Adresse: entfernen, dann gibt es keine Benachrichtigung)."""
+    adresse = _check_email(adresse)
+    with cli_db() as c:
+        uid, _ = _user(c, username)
+        c.execute("UPDATE users SET email=? WHERE id=?", (adresse, uid))
+    click.echo("E-Mail-Adresse gesetzt." if adresse else "E-Mail-Adresse entfernt.")
+
+
+@app.cli.command("test-mail")
+@click.argument("adresse")
+def test_mail(adresse):
+    """Schickt eine Testmail, um die SMTP-Einstellungen zu pruefen."""
+    try:
+        send_mails([_check_email(adresse)], "Testmail Schul-Postfach",
+                   "Wenn du das liest, funktioniert der Mailversand.")
+    except click.ClickException:
+        raise
+    except Exception as e:
+        raise click.ClickException(f"Mailversand fehlgeschlagen: {e}")
+    click.echo("Testmail gesendet.")
+
+
+def run_notifications(dry_run=False):
+    """Meldet Neues per Sammelmail an alle Empfaenger mit Adresse. Gibt eine Meldung zurueck.
+    Wirft RuntimeError, wenn der Versand fehlschlaegt (die Nachrichten bleiben dann ungemeldet)."""
+    with cli_db() as c:
+        neu = c.execute("SELECT COUNT(*) FROM messages WHERE mail_gesendet=0").fetchone()[0]
+        if not neu:
+            return "Nichts zu melden."
+        adressen = [r[0] for r in c.execute("SELECT email FROM users WHERE email != ''")]
+        if not adressen:
+            return "Kein Empfaenger hat eine E-Mail-Adresse."
+        if dry_run:
+            return f"{neu} neue/aktualisierte Nachricht(en), {len(adressen)} Empfaenger. Nichts gesendet."
+        # Beanspruchen (0 -> 2) in einem einzigen UPDATE: so mailen auch zwei gleichzeitige Laeufe nie doppelt
+        ids = [r[0] for r in c.execute("UPDATE messages SET mail_gesendet=2 WHERE mail_gesendet=0 RETURNING id")]
+        c.commit()
+        if not ids:
+            return "Nichts zu melden."
+        body = (f"Im Schul-Postfach gibt es Neues: {len(ids)} neue oder aktualisierte Nachricht(en).\n\n"
+                f"Bitte melde dich an: {BASE_URL}/verwaltung\n\n"
+                "Aus Datenschutzgruenden enthaelt diese Mail keine Inhalte.")
+        try:
+            send_mails(adressen, "Neues im Schul-Postfach", body)
+        except Exception as e:
+            c.executemany("UPDATE messages SET mail_gesendet=0 WHERE id=? AND mail_gesendet=2", [(i,) for i in ids])
+            c.commit()
+            raise RuntimeError(f"Mailversand fehlgeschlagen: {e}")
+        c.executemany("UPDATE messages SET mail_gesendet=1 WHERE id=? AND mail_gesendet=2", [(i,) for i in ids])
+        c.commit()
+    return f"Mail an {len(adressen)} Empfaenger gesendet ({len(ids)} Nachricht(en))."
+
+
+@app.cli.command("send-notifications")
+@click.option("--dry-run", is_flag=True, help="Nur anzeigen, nichts senden")
+def send_notifications(dry_run):
+    """Sammelmail an alle Empfaenger mit E-Mail-Adresse, wenn es Neues gibt."""
+    try:
+        click.echo(run_notifications(dry_run))
+    except RuntimeError as e:
+        raise click.ClickException(str(e))
+
+
+# ---------- Taeglicher automatischer Versand ----------
+def _next_run(now):
+    """Naechster Zeitpunkt aus NOTIFY_AT nach 'now' (Ortszeit in NOTIFY_TZ)."""
+    kandidaten = []
+    for t in NOTIFY_AT.split(","):
+        t = t.strip()
+        if not t:
+            continue
+        h, m = (int(x) for x in t.split(":"))
+        ziel = now.replace(hour=h, minute=m, second=0, microsecond=0)
+        if ziel <= now:
+            ziel += timedelta(days=1)
+        kandidaten.append(ziel)
+    if not kandidaten:
+        raise ValueError("NOTIFY_AT enthaelt keine Uhrzeit")
+    return min(kandidaten)
+
+
+def _seconds_until(ziel, now):
+    # ueber UTC rechnen, damit Sommer-/Winterzeit-Umstellungen stimmen
+    return (ziel.astimezone(timezone.utc) - now.astimezone(timezone.utc)).total_seconds()
+
+
+def _scheduler_loop():
+    tz = ZoneInfo(NOTIFY_TZ)
+    while True:
+        now = datetime.now(tz)
+        time.sleep(max(_seconds_until(_next_run(now), now), 0) + 1)
+        for versuch in range(1, 7):  # bei Fehlern (z. B. Mailserver nicht erreichbar) stuendlich wiederholen
+            try:
+                print("[notify]", run_notifications(), flush=True)
+                break
+            except Exception as e:
+                print(f"[notify] Fehler: {e} (Versuch {versuch}/6, naechster in 1 Stunde)", flush=True)
+                time.sleep(3600)
+
+
+def start_scheduler():
+    """Startet den taeglichen Versand im Hintergrund, falls NOTIFY_AT und SMTP gesetzt sind."""
+    if not NOTIFY_AT:
+        return
+    if not (SMTP_HOST and SMTP_FROM):
+        print("[notify] NOTIFY_AT ist gesetzt, aber SMTP_HOST/SMTP_FROM fehlen: kein automatischer Versand.", flush=True)
+        return
+    try:
+        _next_run(datetime.now(ZoneInfo(NOTIFY_TZ)))  # Zeitzone und Uhrzeiten sofort pruefen
+    except Exception as e:
+        print(f"[notify] Ungueltige Einstellung NOTIFY_AT/NOTIFY_TZ ({e}): kein automatischer Versand.", flush=True)
+        return
+    with cli_db() as c:  # nach einem Absturz haengengebliebene Markierungen wieder freigeben
+        c.execute("UPDATE messages SET mail_gesendet=0 WHERE mail_gesendet=2")
+    threading.Thread(target=_scheduler_loop, name="notify", daemon=True).start()
+    print(f"[notify] Taeglicher Versand aktiv: {NOTIFY_AT} ({NOTIFY_TZ})", flush=True)
+
+
+# nur unter Gunicorn starten (nicht bei flask-Befehlen wie create-user)
+if "gunicorn" in os.environ.get("SERVER_SOFTWARE", ""):
+    start_scheduler()
