@@ -3,7 +3,7 @@
 {% block content %}
 <p><a href="{{ url_for('inbox') }}">Zurück zum Eingang</a></p>
 <h1>{{ m.kategorie }}<strong>.</strong></h1>
-<p class="meta">Eingegangen am {{ m.datum }}{% if m.neu_vom_schueler %} <span class="badge">Rückfrage offen</span>{% endif %}</p>
+<p class="meta">An {{ empfaenger_label(m.empfaenger) }} · Eingegangen am {{ m.datum }}{% if m.neu_vom_schueler %} <span class="badge">Rückfrage offen</span>{% endif %}</p>
 {% for f in get_flashed_messages() %}<p class="ok" role="status">{{ f }}</p>{% endfor %}
 <div class="chat">
   <div class="bubble them"><span class="who">Absender (anonym), {{ m.datum }}</span>{{ m.text }}</div>

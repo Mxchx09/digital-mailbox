@@ -8,11 +8,22 @@
 </section>
 {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
 <form method="post" action="{{ url_for('senden') }}" class="slot-form">
+  <label for="empfaenger">An wen möchtest du schreiben?</label>
+  <select id="empfaenger" name="empfaenger" data-topics='{{ topics|tojson }}' required>
+    <option value="" disabled {% if not sel_emp %}selected{% endif %}>Empfänger auswählen</option>
+    {% for key, r in recipients.items() %}<option value="{{ key }}" {% if key == sel_emp %}selected{% endif %}>{{ r.label }}</option>{% endfor %}
+  </select>
+  <p class="hint">{% for key, r in recipients.items() %}<strong>{{ r.label }}:</strong> {{ r.hint }}{% if not loop.last %}<br>{% endif %}{% endfor %}</p>
   <label for="kategorie">Worum geht es?</label>
   <select id="kategorie" name="kategorie" required>
-    <option value="" disabled {% if not selected %}selected{% endif %}>Thema auswählen</option>
-    {% for c in categories %}<option {% if c == selected %}selected{% endif %}>{{ c }}</option>{% endfor %}
+    <option value="" disabled {% if not selected %}selected{% endif %}>{% if sel_emp %}Thema auswählen{% else %}Zuerst einen Empfänger wählen{% endif %}</option>
+    {% for key, r in recipients.items() %}
+    <optgroup label="{{ r.label }}">
+      {% for c in r.topics %}<option {% if key == sel_emp and c == selected %}selected{% endif %}>{{ c }}</option>{% endfor %}
+    </optgroup>
+    {% endfor %}
   </select>
+  <p class="hint">Nur die gewählte Stelle kann deine Nachricht lesen und dir antworten.</p>
   <label for="text">Deine Nachricht</label>
   <textarea id="text" name="text" rows="9" maxlength="{{ max_len }}" data-min="{{ min_words }}" required>{{ text or '' }}</textarea>
   <p class="hint" id="count" aria-live="polite">Bitte schreibe mindestens {{ min_words }} Wörter, damit wir dein Anliegen verstehen.</p>
@@ -22,4 +33,5 @@
   <button type="submit">Anonym absenden</button>
 </form>
 <script src="{{ url_for('static', filename='counter.js') }}" defer></script>
+<script src="{{ url_for('static', filename='empfaenger.js') }}" defer></script>
 {% endblock %}

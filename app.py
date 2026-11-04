@@ -17,6 +17,7 @@ import sqlite3
 import ssl
 import threading
 import time
+from collections import Counter
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta, timezone
 from email.message import EmailMessage
@@ -68,7 +69,20 @@ CHAT_BURST = 3       # so viele Nachrichten in Folge darf der Absender schicken,
 MIN_SECONDS = 5      # so lange muss das Formular mindestens offen gewesen sein (Bot-Schutz)
 MAX_AGE = 24 * 3600  # aelter als 24 h: Formular gilt als abgelaufen
 MIN_UNIQUE = 3   # davon mindestens so viele verschiedene (gegen 'asdf asdf asdf ...')
-CATEGORIES = ["Mobbing / Streit", "Unterricht", "Organisation", "Sonstiges"]
+# Empfaenger-Bereiche: Schluessel (nicht mehr umbenennen, sobald Nachrichten existieren!), Anzeigename, Hinweis, Themen
+RECIPIENTS = {
+    "sv": {
+        "label": "Schülervertretung",
+        "hint": "Verwaltung / Allgemeines",
+        "topics": ["Unterricht", "Organisation / Verwaltung", "Vorschläge / Feedback", "Sonstiges"],
+    },
+    "sozial": {
+        "label": "Schulsozialarbeit (Maurice Kumar)",
+        "hint": "Persönliches",
+        "topics": ["Mobbing / Streit", "Persönliche Probleme", "Stress / Schule", "Sonstiges"],
+    },
+}
+app.jinja_env.globals["empfaenger_label"] = lambda key: RECIPIENTS.get(key, {}).get("label", key)
 STATUS = ["neu", "in Bearbeitung", "erledigt"]
 CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # ohne 0/O/1/I
 
@@ -79,6 +93,7 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS messages (
     id INTEGER PRIMARY KEY,
     code_hash TEXT NOT NULL UNIQUE,
+    empfaenger TEXT NOT NULL DEFAULT '',
     kategorie TEXT NOT NULL,
     text TEXT NOT NULL,
     datum TEXT NOT NULL,
@@ -99,7 +114,8 @@ CREATE TABLE IF NOT EXISTS users (
     username TEXT NOT NULL UNIQUE,
     pw_hash TEXT NOT NULL,
     role TEXT NOT NULL DEFAULT 'empfaenger',
-    email TEXT NOT NULL DEFAULT ''
+    email TEXT NOT NULL DEFAULT '',
+    sections TEXT NOT NULL DEFAULT ''
 );
 """
 
@@ -113,9 +129,13 @@ def migrate(conn):
     if "mail_gesendet" not in cols:
         conn.execute("ALTER TABLE messages ADD COLUMN mail_gesendet INTEGER NOT NULL DEFAULT 0")
         conn.execute("UPDATE messages SET mail_gesendet=1")  # alte Nachrichten nicht nachmelden
+    if "empfaenger" not in cols:
+        conn.execute("ALTER TABLE messages ADD COLUMN empfaenger TEXT NOT NULL DEFAULT ''")
+        conn.execute("UPDATE messages SET empfaenger=?", (next(iter(RECIPIENTS)),))  # alte Nachrichten: erster Bereich
     ucols = {r[1] for r in conn.execute("PRAGMA table_info(users)")}
     if "email" not in ucols:
         conn.execute("ALTER TABLE users ADD COLUMN email TEXT NOT NULL DEFAULT ''")
+        conn.execute("UPDATE users SET sections=?", (",".join(RECIPIENTS),))  # bestehende Zugaenge sehen weiter alles
     if "antwort" in cols:  # fruehere Einzelantworten in den Verlauf uebernehmen
         for mid, txt in conn.execute("SELECT id, antwort FROM messages WHERE antwort != ''").fetchall():
             conn.execute("INSERT INTO chat (message_id, von, text, datum) VALUES (?, 'empfaenger', ?, ?)",
@@ -233,14 +253,17 @@ def is_duplicate(text, window=3600):
 
 
 def render_form(status=200, **kw):
-    return render_template("index.html", categories=CATEGORIES, max_len=MAX_LEN,
+    topics = {key: r["topics"] for key, r in RECIPIENTS.items()}
+    return render_template("index.html", recipients=RECIPIENTS, topics=topics, max_len=MAX_LEN,
                            min_words=MIN_WORDS, zt=make_token(), **kw), status
 
 
-def validate(kategorie, text):
+def validate(empfaenger, kategorie, text):
     """Gibt eine Fehlermeldung zurueck oder None, wenn alles passt."""
     words = text.split()
-    if kategorie not in CATEGORIES:
+    if empfaenger not in RECIPIENTS:
+        return "Bitte wähle aus, an wen du schreiben möchtest."
+    if kategorie not in RECIPIENTS[empfaenger]["topics"]:
         return "Bitte wähle ein Thema aus."
     if len(text) > MAX_LEN:
         return f"Deine Nachricht ist zu lang (maximal {MAX_LEN} Zeichen)."
@@ -265,16 +288,17 @@ def senden():
         return render_form(429, error="Gerade sind zu viele Nachrichten eingegangen. "
                                       "Bitte versuche es in einer Minute erneut.")
     text = request.form.get("text", "").strip()
+    empfaenger = request.form.get("empfaenger", "")
     kategorie = request.form.get("kategorie", "")
-    error = token_error(request.form.get("zt", "")) or validate(kategorie, text)
+    error = token_error(request.form.get("zt", "")) or validate(empfaenger, kategorie, text)
     if not error and is_duplicate(text):
         error = "Diese Nachricht haben wir bereits erhalten."
     if error:
-        return render_form(400, text=text, error=error, selected=kategorie)
+        return render_form(400, text=text, error=error, selected=kategorie, sel_emp=empfaenger)
     code = new_code()
     db().execute(
-        "INSERT INTO messages (code_hash, kategorie, text, datum) VALUES (?,?,?,?)",
-        (hash_code(code), kategorie, text, date.today().isoformat()))
+        "INSERT INTO messages (code_hash, empfaenger, kategorie, text, datum) VALUES (?,?,?,?,?)",
+        (hash_code(code), empfaenger, kategorie, text, date.today().isoformat()))
     db().commit()
     return render_template("danke.html", code=code)  # kein Redirect: Code steht nie in einer URL
 
@@ -341,11 +365,18 @@ def login_required(view):
     @wraps(view)
     def wrapped(*a, **kw):
         uid = session.get("uid")
-        if not uid or not db().execute("SELECT 1 FROM users WHERE id=?", (uid,)).fetchone():
+        user = db().execute("SELECT * FROM users WHERE id=?", (uid,)).fetchone() if uid else None
+        if not user:
             session.clear()
             return redirect(url_for("login"))
+        g.user = user
         return view(*a, **kw)
     return wrapped
+
+
+def my_areas():
+    """Bereiche, deren Nachrichten der angemeldete Zugang sehen darf."""
+    return [b for b in (g.user["sections"] or "").split(",") if b in RECIPIENTS]
 
 
 @app.route("/verwaltung/login", methods=["GET", "POST"])
@@ -377,19 +408,22 @@ def logout():
 @login_required
 def inbox():
     flt = request.args.get("status", "")
-    order = "ORDER BY neu_vom_schueler DESC, id DESC"  # offene Rueckfragen zuerst
-    if flt in STATUS:
-        rows = db().execute(f"SELECT * FROM messages WHERE status=? {order}", (flt,)).fetchall()
-    else:
-        rows = db().execute(f"SELECT * FROM messages {order}").fetchall()
-    return render_template("inbox.html", rows=rows, flt=flt, statuses=STATUS)
+    areas = my_areas()
+    rows = []
+    if areas:
+        marks = ",".join("?" * len(areas))
+        where = f"empfaenger IN ({marks})" + (" AND status=?" if flt in STATUS else "")
+        args = (*areas, flt) if flt in STATUS else tuple(areas)
+        order = "ORDER BY neu_vom_schueler DESC, id DESC"  # offene Rueckfragen zuerst
+        rows = db().execute(f"SELECT * FROM messages WHERE {where} {order}", args).fetchall()
+    return render_template("inbox.html", rows=rows, flt=flt, statuses=STATUS, areas=areas, multi=len(areas) > 1)
 
 
 @app.route("/verwaltung/<int:mid>", methods=["GET", "POST"])
 @login_required
 def message(mid):
     row = db().execute("SELECT * FROM messages WHERE id=?", (mid,)).fetchone()
-    if not row:
+    if not row or row["empfaenger"] not in my_areas():  # fremde Bereiche sind nicht einmal als vorhanden erkennbar
         abort(404)
     if request.method == "POST":
         st = request.form.get("status", "")
@@ -416,8 +450,8 @@ def _check_email(addr):
     return addr
 
 
-def send_mails(recipients, subject, body):
-    """Schickt jedem Empfaenger eine eigene Mail ueber den SMTP-Server aus den Einstellungen."""
+def send_mails(items, subject):
+    """Verschickt Mails ueber den SMTP-Server aus den Einstellungen. items: Liste von (Adresse, Text)."""
     if not SMTP_HOST or not SMTP_FROM:
         raise RuntimeError("SMTP_HOST und SMTP_FROM sind nicht gesetzt.")
     ctx = ssl.create_default_context()
@@ -430,7 +464,7 @@ def send_mails(recipients, subject, body):
             smtp.starttls(context=ctx)
         if SMTP_USER:
             smtp.login(SMTP_USER, SMTP_PASSWORD)
-        for addr in recipients:
+        for addr, body in items:
             msg = EmailMessage()
             msg["From"] = SMTP_FROM
             msg["To"] = addr
@@ -486,29 +520,46 @@ yes_option = click.option("--yes", is_flag=True, help="Ohne Rueckfrage ausfuehre
 @click.argument("username")
 @click.option("--role", type=ROLES, default="empfaenger")
 @click.option("--email", default="", help="E-Mail-Adresse fuer Benachrichtigungen (optional)")
+@click.option("--section", "sections", multiple=True, type=click.Choice(list(RECIPIENTS)),
+              help="Bereich, dessen Nachrichten dieser Zugang sieht und per Mail gemeldet bekommt (mehrfach moeglich)")
 @click.password_option()
-def create_user(username, role, email, password):
+def create_user(username, role, email, sections, password):
     """Neuen Zugang anlegen."""
     _check_pw(password)
     email = _check_email(email)
     try:
         with cli_db() as c:
-            c.execute("INSERT INTO users (username, pw_hash, role, email) VALUES (?,?,?,?)",
-                      (_name(username), generate_password_hash(password), role, email))
+            c.execute("INSERT INTO users (username, pw_hash, role, email, sections) VALUES (?,?,?,?,?)",
+                      (_name(username), generate_password_hash(password), role, email,
+                       ",".join(dict.fromkeys(sections))))
     except sqlite3.IntegrityError:
         raise click.ClickException("Diesen Benutzernamen gibt es schon.")
     click.echo(f"Zugang '{username}' ({role}) angelegt.")
+    if not sections:
+        click.echo(f"Hinweis: Dieser Zugang sieht noch keine Nachrichten. Bereich zuweisen mit: "
+                   f"set-sections {_name(username)} {' '.join(RECIPIENTS)}")
 
 
 @app.cli.command("list-users")
 def list_users():
     """Alle Zugaenge anzeigen."""
     with cli_db() as c:
-        rows = c.execute("SELECT username, role, email FROM users ORDER BY username").fetchall()
-    for name, role, email in rows:
-        click.echo(f"{name}  ({role})  {email or '-'}")
+        rows = c.execute("SELECT username, role, email, sections FROM users ORDER BY username").fetchall()
+    for name, role, email, sections in rows:
+        click.echo(f"{name}  ({role})  {email or '-'}  Bereiche: {sections or '-'}")
     if not rows:
         click.echo("Noch keine Zugaenge angelegt.")
+
+
+@app.cli.command("set-sections")
+@click.argument("username")
+@click.argument("sections", nargs=-1, type=click.Choice(list(RECIPIENTS)))
+def set_sections(username, sections):
+    """Legt fest, welche Nachrichten ein Zugang sieht und per Mail gemeldet bekommt (ohne Angabe: keine)."""
+    with cli_db() as c:
+        uid, _ = _user(c, username)
+        c.execute("UPDATE users SET sections=? WHERE id=?", (",".join(dict.fromkeys(sections)), uid))
+    click.echo(f"Bereiche von '{username}': {', '.join(dict.fromkeys(sections)) or 'keine'}")
 
 
 @app.cli.command("set-password")
@@ -571,6 +622,8 @@ def stats():
     with cli_db() as c:
         total = c.execute("SELECT COUNT(*) FROM messages").fetchone()[0]
         click.echo(f"Nachrichten gesamt: {total}")
+        for k, n in c.execute("SELECT empfaenger, COUNT(*) FROM messages GROUP BY empfaenger"):
+            click.echo(f"  an {RECIPIENTS.get(k, {}).get('label', k)}: {n}")
         click.echo(f"Offene Rueckfragen: {c.execute('SELECT COUNT(*) FROM messages WHERE neu_vom_schueler=1').fetchone()[0]}")
         for st, n in c.execute("SELECT status, COUNT(*) FROM messages GROUP BY status"):
             click.echo(f"  {st}: {n}")
@@ -676,8 +729,8 @@ def set_email(username, adresse):
 def test_mail(adresse):
     """Schickt eine Testmail, um die SMTP-Einstellungen zu pruefen."""
     try:
-        send_mails([_check_email(adresse)], "Testmail Schul-Postfach",
-                   "Wenn du das liest, funktioniert der Mailversand.")
+        send_mails([(_check_email(adresse), "Wenn du das liest, funktioniert der Mailversand.")],
+                   "Testmail Schul-Postfach")
     except click.ClickException:
         raise
     except Exception as e:
@@ -686,34 +739,51 @@ def test_mail(adresse):
 
 
 def run_notifications(dry_run=False):
-    """Meldet Neues per Sammelmail an alle Empfaenger mit Adresse. Gibt eine Meldung zurueck.
-    Wirft RuntimeError, wenn der Versand fehlschlaegt (die Nachrichten bleiben dann ungemeldet)."""
+    """Meldet Neues per Sammelmail. Jeder Zugang bekommt nur Hinweise zu seinen eigenen Bereichen.
+    Gibt eine Meldung zurueck. Wirft RuntimeError, wenn der Versand fehlschlaegt (Nachrichten bleiben dann ungemeldet)."""
     with cli_db() as c:
-        neu = c.execute("SELECT COUNT(*) FROM messages WHERE mail_gesendet=0").fetchone()[0]
+        adressen = {}  # Bereich -> Adressen der Zugaenge, die diesen Bereich betreuen
+        for email, sections in c.execute("SELECT email, sections FROM users WHERE email != ''").fetchall():
+            for b in sections.split(","):
+                if b in RECIPIENTS:
+                    adressen.setdefault(b, []).append(email)
+        neu = dict(c.execute("SELECT empfaenger, COUNT(*) FROM messages WHERE mail_gesendet=0 GROUP BY empfaenger").fetchall())
         if not neu:
             return "Nichts zu melden."
-        adressen = [r[0] for r in c.execute("SELECT email FROM users WHERE email != ''")]
-        if not adressen:
-            return "Kein Empfaenger hat eine E-Mail-Adresse."
+        meldbar = [b for b in neu if b in adressen]
+        if not meldbar:
+            return "Es gibt Neues, aber fuer diese Bereiche hat kein Zugang eine E-Mail-Adresse."
         if dry_run:
-            return f"{neu} neue/aktualisierte Nachricht(en), {len(adressen)} Empfaenger. Nichts gesendet."
+            return "; ".join(f"{RECIPIENTS[b]['label']}: {neu[b]} an {len(adressen[b])} Adresse(n)"
+                             for b in meldbar) + ". Nichts gesendet."
         # Beanspruchen (0 -> 2) in einem einzigen UPDATE: so mailen auch zwei gleichzeitige Laeufe nie doppelt
-        ids = [r[0] for r in c.execute("UPDATE messages SET mail_gesendet=2 WHERE mail_gesendet=0 RETURNING id")]
+        marks = ",".join("?" * len(meldbar))
+        rows = c.execute(f"UPDATE messages SET mail_gesendet=2 WHERE mail_gesendet=0 AND empfaenger IN ({marks}) "
+                         "RETURNING id, empfaenger", meldbar).fetchall()
         c.commit()
-        if not ids:
+        if not rows:
             return "Nichts zu melden."
-        body = (f"Im Schul-Postfach gibt es Neues: {len(ids)} neue oder aktualisierte Nachricht(en).\n\n"
-                f"Bitte melde dich an: {BASE_URL}/verwaltung\n\n"
-                "Aus Datenschutzgruenden enthaelt diese Mail keine Inhalte.")
+        ids = [r[0] for r in rows]
+        anzahl = Counter(r[1] for r in rows)
+        pro_adresse = {}
+        for b, n in anzahl.items():
+            for addr in adressen[b]:
+                pro_adresse.setdefault(addr, []).append((b, n))
+        mails = []
+        for addr, teile in pro_adresse.items():
+            zeilen = "\n".join(f"- {RECIPIENTS[b]['label']}: {n}" for b, n in teile)
+            mails.append((addr, "Im Schul-Postfach gibt es Neues (neue oder aktualisierte Nachrichten):\n"
+                                f"{zeilen}\n\nBitte melde dich an: {BASE_URL}/verwaltung\n\n"
+                                "Aus Datenschutzgruenden enthaelt diese Mail keine Inhalte."))
         try:
-            send_mails(adressen, "Neues im Schul-Postfach", body)
+            send_mails(mails, "Neues im Schul-Postfach")
         except Exception as e:
             c.executemany("UPDATE messages SET mail_gesendet=0 WHERE id=? AND mail_gesendet=2", [(i,) for i in ids])
             c.commit()
             raise RuntimeError(f"Mailversand fehlgeschlagen: {e}")
         c.executemany("UPDATE messages SET mail_gesendet=1 WHERE id=? AND mail_gesendet=2", [(i,) for i in ids])
         c.commit()
-    return f"Mail an {len(adressen)} Empfaenger gesendet ({len(ids)} Nachricht(en))."
+    return f"{len(mails)} Mail(s) gesendet ({len(ids)} Nachricht(en))."
 
 
 @app.cli.command("send-notifications")
