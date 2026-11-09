@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Zugänge{% endblock %}
+{% block content %}
+<div class="bar"><h1>Zu<strong>gänge.</strong></h1>
+<form method="post" action="{{ url_for('logout') }}"><input type="hidden" name="csrf" value="{{ csrf_token() }}"><button class="link">Abmelden</button></form></div>
+<p class="lead">Als Admin siehst du keine Nachrichten. Du verwaltest die Zugänge der Empfänger.</p>
+{% for label in ohne_mail %}<p class="error">Für „{{ label }}“ hat kein Empfänger eine E-Mail-Adresse, dort gibt es keine Benachrichtigungen.</p>{% endfor %}
+<ul class="list">
+{% for u in users %}
+<li><span class="item"><span class="meta">{{ 'Admin' if u.role == 'admin' else 'Empfänger' }}{% if u.bereich %}, {{ u.bereich }}{% endif %}</span>
+<strong>{{ u.name }}</strong>{% if u.email %} · {{ u.email }}{% endif %}</span></li>
+{% endfor %}
+</ul>
+<p class="hint">Zugänge werden auf der Kommandozeile angelegt und geändert (<code>create-user</code>, <code>set-section</code>, <code>set-email</code>, <code>remove-user</code>), siehe README.</p>
+{% endblock %}

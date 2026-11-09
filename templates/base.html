@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#003c8b">
+<link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}" sizes="32x32">
+<link rel="icon" href="{{ url_for('static', filename='favicon.svg') }}" type="image/svg+xml">
+<link rel="apple-touch-icon" href="{{ url_for('static', filename='apple-touch-icon.png') }}">
+<title>{% block title %}Postfach{% endblock %} · Schul-Postfach</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<div class="stripe" aria-hidden="true"></div>
+<header class="top"><div class="wrap">
+  <a class="brand" href="{{ url_for('index') }}">
+    <img src="{{ url_for('static', filename='logo.svg') }}" alt="HTL Anichstraße" width="201" height="40">
+    <span class="brand-sub">Postfach</span>
+  </a>
+  <nav><a href="{{ url_for('index') }}">Nachricht schreiben</a><a href="{{ url_for('status') }}">Antwort abholen</a></nav>
+</div></header>
+<main>{% block content %}{% endblock %}</main>
+<footer><div class="wrap">Diese Seite speichert weder deine IP-Adresse noch die Uhrzeit, setzt keine Cookies und nutzt kein Tracking.</div></footer>
+</body>
+</html>

@@ -1,0 +1,31 @@
+# Schul-Postfach als systemd-Dienst fuer einen normalen Benutzer (rootless Podman, Quadlet).
+# Ablegen unter ~/.config/containers/systemd/ (Anleitung: README, Abschnitt Hosting).
+# Pfad zur .env unten anpassen (hier: ~/schulpostfach/.env).
+[Unit]
+Description=Schul-Postfach
+After=network-online.target
+Wants=network-online.target
+
+[Container]
+ContainerName=postfach
+Image=localhost/schulpostfach:latest
+# nur der Reverse Proxy auf demselben Server erreicht den Port
+PublishPort=127.0.0.1:8000:8000
+Volume=postfach-data.volume:/data:Z
+EnvironmentFile=%h/schulpostfach/.env
+ReadOnly=true
+Tmpfs=/tmp
+DropCapability=ALL
+NoNewPrivileges=true
+HealthCmd=python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/', timeout=4)"
+HealthInterval=30s
+HealthTimeout=5s
+HealthRetries=3
+HealthStartPeriod=10s
+
+[Service]
+Restart=always
+TimeoutStartSec=300
+
+[Install]
+WantedBy=default.target

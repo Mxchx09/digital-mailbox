@@ -1,0 +1,10 @@
+.git
+.env
+*.db
+*.zip
+venv
+__pycache__
+*.pyc
+README.md
+docker-compose.override.yml
+podman

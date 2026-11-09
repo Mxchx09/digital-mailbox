@@ -1,0 +1,104 @@
+/* Farben aus dem Schul-Logo (HTL Anichstrasse). Hier anpassen: */
+:root{
+  --accent:#003c8b;      /* Logo-Blau */
+  --accent-dark:#002d6a;
+  --accent-soft:#e8eef8;
+  --ink:#16202e;
+  --mute:#5a6575;
+  --line:#dde3ec;
+  --bg:#f4f7fb;
+  --card:#fff;
+  --bad:#b3261e;
+  --good:#1b6b3a;
+  --radius:14px;
+  --shadow:0 10px 30px rgba(0,60,139,.08);
+  --font:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+}
+*{box-sizing:border-box}
+html{font-family:var(--font);color:var(--ink);background:#fff;line-height:1.6;-webkit-text-size-adjust:100%}
+body{margin:0;min-height:100vh;display:flex;flex-direction:column;background:linear-gradient(var(--bg),#fff 380px) no-repeat}
+a{color:var(--accent)}
+.wrap{max-width:62rem;margin:0 auto;padding:0 1.25rem; text-align: center;}
+
+/* Kopf */
+.stripe{height:4px;background:linear-gradient(90deg,#c56591 0 20%,#a7c56f 20% 40%,#ec6f4f 40% 60%,#657aba 60% 80%,#ecbf3e 80% 100%)}
+.top{background:rgba(255,255,255,.85);backdrop-filter:blur(8px)}
+.top .wrap{display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap;padding-top:.9rem;padding-bottom:.9rem}
+.brand{display:flex;align-items:center;gap:.9rem;text-decoration:none;color:var(--ink)}
+.brand img{display:block;height:40px;width:auto}
+.brand-sub{padding-left:.9rem;border-left:2px solid var(--line);font-weight:700;color:var(--accent);font-size:1.05rem}
+.top nav{display:flex;gap:.25rem;flex-wrap:wrap}
+.top nav a{color:var(--ink);text-decoration:none;font-weight:600;font-size:.95rem;padding:.45rem .9rem;border-radius:999px}
+.top nav a:hover{background:var(--accent-soft);color:var(--accent)}
+
+main{flex:1;width:100%;max-width:44rem;margin:0 auto;padding:2.5rem 1.25rem 4rem}
+
+/* Texte */
+h1{font-size:clamp(1.9rem,5vw,2.7rem);line-height:1.15;letter-spacing:-.02em;font-weight:700;margin:0 0 .8rem}
+h1 strong{color:var(--accent);font-weight:800}
+.lead{color:var(--mute);font-size:1.15rem;margin:0 0 1rem}
+.hint,.meta{color:var(--mute);font-size:.9rem}
+.error{color:var(--bad);font-weight:600}.ok{color:var(--good);font-weight:600}
+.chips{list-style:none;padding:0;margin:0 0 1.5rem;display:flex;gap:.5rem;flex-wrap:wrap}
+.chips li{background:var(--accent-soft);color:var(--accent);font-weight:600;font-size:.85rem;padding:.3rem .8rem;border-radius:999px}
+
+/* Karten und Formulare */
+.slot-form{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:1.75rem;margin-top:1.25rem;position:relative}
+label{display:block;font-weight:600;margin:1.1rem 0 .4rem}
+label:first-of-type{margin-top:0}
+input,select,textarea{width:100%;font:inherit;color:var(--ink);padding:.75rem .9rem;border:1.5px solid #c3ccd9;border-radius:10px;background:#fff;transition:border-color .15s,box-shadow .15s}
+textarea{resize:vertical}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 4px rgba(0,60,139,.15)}
+:focus-visible{outline:3px solid rgba(0,60,139,.45);outline-offset:2px}
+.hp{position:absolute;left:-9999px}
+.slot{display:none}
+
+button,.btn{display:inline-block;margin-top:1.4rem;padding:.8rem 1.5rem;font:inherit;font-weight:700;color:#fff;background:var(--accent);border:0;border-radius:10px;cursor:pointer;text-decoration:none;transition:background .15s,transform .05s}
+button:hover,.btn:hover{background:var(--accent-dark)}
+button:active,.btn:active{transform:translateY(1px)}
+button:not(.link)::after,.btn::after{content:" \2192"}
+button.link{margin:0;padding:0;background:none;color:var(--accent);font-weight:600;border-radius:0;text-decoration:underline}
+button.link:hover{background:none}
+
+/* Rueckmeldecode und Status */
+.code{font:700 1.6rem ui-monospace,Menlo,Consolas,monospace;letter-spacing:.08em;background:var(--accent-soft);color:var(--accent);border:2px dashed var(--accent);border-radius:var(--radius);padding:1.1rem;text-align:center;user-select:all}
+.result{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:1rem 1.25rem;margin-top:1.25rem}
+.reply{white-space:pre-wrap}
+
+/* Chat */
+.chat{display:flex;flex-direction:column;gap:.7rem;margin:1.25rem 0}
+.bubble{max-width:88%;padding:.7rem 1rem;white-space:pre-wrap;word-wrap:break-word;background:var(--card);border:1px solid var(--line);border-radius:16px 16px 16px 4px}
+.bubble.me{align-self:flex-end;background:var(--accent);border-color:var(--accent);color:#fff;border-radius:16px 16px 4px 16px}
+.bubble.them{align-self:flex-start}
+.who{display:block;font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--mute);margin-bottom:.2rem}
+.bubble.me .who{color:rgba(255,255,255,.78)}
+blockquote{white-space:pre-wrap;margin:1.2rem 0;padding:1rem 1.25rem;background:var(--card);border:1px solid var(--line);border-radius:var(--radius)}
+
+/* Verwaltung */
+.bar{display:flex;justify-content:space-between;align-items:baseline;gap:1rem}
+.filters{display:flex;gap:.4rem;flex-wrap:wrap;margin:.5rem 0 1rem}
+.filters a{color:var(--ink);text-decoration:none;font-weight:600;font-size:.9rem;padding:.3rem .85rem;border-radius:999px;background:var(--accent-soft)}
+.filters a[aria-current]{background:var(--accent);color:#fff}
+.list{list-style:none;padding:0;margin:0}
+.list li{background:var(--card);border:1px solid var(--line);border-radius:12px;margin-bottom:.6rem;transition:box-shadow .15s,border-color .15s}
+.list li:hover{border-color:var(--accent);box-shadow:var(--shadow)}
+.list a,.list .item{display:block;padding:.9rem 1.1rem;color:var(--ink);text-decoration:none}
+.list .meta{display:block;margin-bottom:.1rem}
+.badge{display:inline-block;background:#ec6f4f;color:#fff;font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;padding:.1rem .55rem;border-radius:999px;margin-left:.4rem}
+
+/* Fuss */
+footer{border-top:1px solid var(--line);background:#fff;color:var(--mute);font-size:.85rem}
+footer .wrap{padding-top:1.3rem;padding-bottom:1.3rem}
+
+@media (max-width:30rem){
+  .brand img{height:32px}
+  .brand-sub{display:none}
+  .top nav{margin-left:-.6rem}
+  .top nav a{font-size:.88rem;padding:.4rem .6rem}
+  .slot-form{padding:1.25rem}
+  .bubble{max-width:94%}
+}
+
+label.inline{display:flex;align-items:center;gap:.5rem;font-weight:400;margin-top:.6rem}
+label.inline input{width:auto}
+input[readonly]{background:var(--bg);color:var(--mute)}
