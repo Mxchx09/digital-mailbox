@@ -6,6 +6,16 @@ services:
     environment:
       SECRET_KEY: ${SECRET_KEY:?Bitte SECRET_KEY in der Datei .env setzen}
       HTTPS: ${HTTPS:-0}
+      COOKIE_PATH: ${COOKIE_PATH:-/}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_SECURITY: ${SMTP_SECURITY:-starttls}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      BASE_URL: ${BASE_URL:-http://localhost:8000}
+      NOTIFY_AT: ${NOTIFY_AT:-07:00}
+      NOTIFY_TZ: ${NOTIFY_TZ:-Europe/Vienna}
     ports:
       - "${BIND:-127.0.0.1}:8000:8000"
     volumes:

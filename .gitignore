@@ -3,3 +3,4 @@ postfach.db
 venv/
 __pycache__/
 .env
+docker-compose.override.yml

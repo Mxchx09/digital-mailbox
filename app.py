@@ -10,35 +10,58 @@ import hashlib
 import hmac
 import logging
 import os
+import re
 import secrets
+import smtplib
 import sqlite3
+import ssl
+import threading
 import time
+from collections import Counter
 from contextlib import contextmanager
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
+from email.message import EmailMessage
+from email.utils import formatdate
 from functools import wraps
+from zoneinfo import ZoneInfo
 
 import click
 from flask import (Flask, abort, flash, g, redirect, render_template, request,
                    session, url_for)
-from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.middleware.proxy_fix import ProxyFix
+from werkzeug.security import check_password_hash, generate_password_hash
 
 app = Flask(__name__)
+# Hinter dem Reverse Proxy der Schule (z. B. unter /postfach): Unterpfad und Protokoll aus den
+# X-Forwarded-Headern uebernehmen. x_for bleibt bewusst aus, die App soll nie eine Client-IP sehen.
 app.wsgi_app = ProxyFix(
     app.wsgi_app,
     x_prefix=1,
     x_proto=1,
 )
-app.config["SESSION_COOKIE_PATH"] ="/postfach"
 
 app.config.update(
     SECRET_KEY=os.environ.get("SECRET_KEY") or secrets.token_hex(32),
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Strict",
     SESSION_COOKIE_SECURE=os.environ.get("HTTPS", "0") == "1",
+    SESSION_COOKIE_PATH=os.environ.get("COOKIE_PATH", "/"),  # auf dem Schulserver: /postfach
     MAX_CONTENT_LENGTH=32 * 1024,
 )
 DB_PATH = os.environ.get("DB_PATH", "postfach.db")
+
+# --- E-Mail-Benachrichtigung (alles per Umgebungsvariable, nie ins Repo) ---
+SMTP_HOST = os.environ.get("SMTP_HOST", "")
+SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
+SMTP_SECURITY = os.environ.get("SMTP_SECURITY", "starttls")  # starttls | ssl | none
+SMTP_USER = os.environ.get("SMTP_USER", "")
+SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")
+SMTP_FROM = os.environ.get("SMTP_FROM", "")
+BASE_URL = os.environ.get("BASE_URL", "http://localhost:8000").rstrip("/")
+# Taeglicher automatischer Versand (laeuft im Gunicorn-Prozess). Leer = aus. Mehrere Zeiten: "07:00,15:00"
+NOTIFY_AT = os.environ.get("NOTIFY_AT", "")
+NOTIFY_TZ = os.environ.get("NOTIFY_TZ", "Europe/Vienna")
+
 MAX_LEN = 5000
 MIN_WORDS = 5    # Mindestanzahl Woerter pro Nachricht
 CHAT_MAX = 2000      # maximale Zeichenzahl pro Chat-Nachricht
@@ -46,7 +69,20 @@ CHAT_BURST = 3       # so viele Nachrichten in Folge darf der Absender schicken,
 MIN_SECONDS = 5      # so lange muss das Formular mindestens offen gewesen sein (Bot-Schutz)
 MAX_AGE = 24 * 3600  # aelter als 24 h: Formular gilt als abgelaufen
 MIN_UNIQUE = 3   # davon mindestens so viele verschiedene (gegen 'asdf asdf asdf ...')
-CATEGORIES = ["Mobbing / Streit", "Unterricht", "Organisation", "Sonstiges"]
+# Empfaenger-Bereiche: Schluessel (nicht mehr umbenennen, sobald Nachrichten existieren!), Anzeigename, Hinweis, Themen
+RECIPIENTS = {
+    "sv": {
+        "label": "Schülervertretung",
+        "hint": "Verwaltung / Allgemeines",
+        "topics": ["Unterricht", "Organisation / Verwaltung", "Vorschläge / Feedback", "Sonstiges"],
+    },
+    "sozial": {
+        "label": "Schulsozialarbeit (Maurice Kumar)",
+        "hint": "Persönliches",
+        "topics": ["Mobbing / Streit", "Persönliche Probleme", "Stress / Schule", "Sonstiges"],
+    },
+}
+app.jinja_env.globals["empfaenger_label"] = lambda key: RECIPIENTS.get(key, {}).get("label", key)
 STATUS = ["neu", "in Bearbeitung", "erledigt"]
 CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # ohne 0/O/1/I
 
@@ -57,12 +93,14 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS messages (
     id INTEGER PRIMARY KEY,
     code_hash TEXT NOT NULL UNIQUE,
+    empfaenger TEXT NOT NULL DEFAULT '',
     kategorie TEXT NOT NULL,
     text TEXT NOT NULL,
     datum TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'neu',
     notiz TEXT NOT NULL DEFAULT '',
-    neu_vom_schueler INTEGER NOT NULL DEFAULT 0
+    neu_vom_schueler INTEGER NOT NULL DEFAULT 0,
+    mail_gesendet INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS chat (
     id INTEGER PRIMARY KEY,
@@ -75,7 +113,9 @@ CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY,
     username TEXT NOT NULL UNIQUE,
     pw_hash TEXT NOT NULL,
-    role TEXT NOT NULL DEFAULT 'empfaenger'
+    role TEXT NOT NULL DEFAULT 'empfaenger',
+    email TEXT NOT NULL DEFAULT '',
+    sections TEXT NOT NULL DEFAULT ''
 );
 """
 
@@ -86,6 +126,21 @@ def migrate(conn):
     cols = {r[1] for r in conn.execute("PRAGMA table_info(messages)")}
     if "neu_vom_schueler" not in cols:
         conn.execute("ALTER TABLE messages ADD COLUMN neu_vom_schueler INTEGER NOT NULL DEFAULT 0")
+    if "mail_gesendet" not in cols:
+        conn.execute("ALTER TABLE messages ADD COLUMN mail_gesendet INTEGER NOT NULL DEFAULT 0")
+        conn.execute("UPDATE messages SET mail_gesendet=1")  # alte Nachrichten nicht nachmelden
+    if "empfaenger" not in cols:
+        conn.execute("ALTER TABLE messages ADD COLUMN empfaenger TEXT NOT NULL DEFAULT ''")
+        conn.execute("UPDATE messages SET empfaenger=?", (next(iter(RECIPIENTS)),))  # alte Nachrichten: erster Bereich
+    ucols = {r[1] for r in conn.execute("PRAGMA table_info(users)")}
+    if "email" not in ucols:
+        conn.execute("ALTER TABLE users ADD COLUMN email TEXT NOT NULL DEFAULT ''")
+    if "sections" not in ucols:
+        if "bereiche" in ucols:  # Spalte hiess frueher "bereiche": umbenennen, Zuordnungen bleiben erhalten
+            conn.execute("ALTER TABLE users RENAME COLUMN bereiche TO sections")
+        else:
+            conn.execute("ALTER TABLE users ADD COLUMN sections TEXT NOT NULL DEFAULT ''")
+            conn.execute("UPDATE users SET sections=?", (",".join(RECIPIENTS),))  # bestehende Zugaenge sehen weiter alles
     if "antwort" in cols:  # fruehere Einzelantworten in den Verlauf uebernehmen
         for mid, txt in conn.execute("SELECT id, antwort FROM messages WHERE antwort != ''").fetchall():
             conn.execute("INSERT INTO chat (message_id, von, text, datum) VALUES (?, 'empfaenger', ?, ?)",
@@ -203,14 +258,17 @@ def is_duplicate(text, window=3600):
 
 
 def render_form(status=200, **kw):
-    return render_template("index.html", categories=CATEGORIES, max_len=MAX_LEN,
+    topics = {key: r["topics"] for key, r in RECIPIENTS.items()}
+    return render_template("index.html", recipients=RECIPIENTS, topics=topics, max_len=MAX_LEN,
                            min_words=MIN_WORDS, zt=make_token(), **kw), status
 
 
-def validate(kategorie, text):
+def validate(empfaenger, kategorie, text):
     """Gibt eine Fehlermeldung zurueck oder None, wenn alles passt."""
     words = text.split()
-    if kategorie not in CATEGORIES:
+    if empfaenger not in RECIPIENTS:
+        return "Bitte wähle aus, an wen du schreiben möchtest."
+    if kategorie not in RECIPIENTS[empfaenger]["topics"]:
         return "Bitte wähle ein Thema aus."
     if len(text) > MAX_LEN:
         return f"Deine Nachricht ist zu lang (maximal {MAX_LEN} Zeichen)."
@@ -235,16 +293,17 @@ def senden():
         return render_form(429, error="Gerade sind zu viele Nachrichten eingegangen. "
                                       "Bitte versuche es in einer Minute erneut.")
     text = request.form.get("text", "").strip()
+    empfaenger = request.form.get("empfaenger", "")
     kategorie = request.form.get("kategorie", "")
-    error = token_error(request.form.get("zt", "")) or validate(kategorie, text)
+    error = token_error(request.form.get("zt", "")) or validate(empfaenger, kategorie, text)
     if not error and is_duplicate(text):
         error = "Diese Nachricht haben wir bereits erhalten."
     if error:
-        return render_form(400, text=text, error=error, selected=kategorie)
+        return render_form(400, text=text, error=error, selected=kategorie, sel_emp=empfaenger)
     code = new_code()
     db().execute(
-        "INSERT INTO messages (code_hash, kategorie, text, datum) VALUES (?,?,?,?)",
-        (hash_code(code), kategorie, text, date.today().isoformat()))
+        "INSERT INTO messages (code_hash, empfaenger, kategorie, text, datum) VALUES (?,?,?,?,?)",
+        (hash_code(code), empfaenger, kategorie, text, date.today().isoformat()))
     db().commit()
     return render_template("danke.html", code=code)  # kein Redirect: Code steht nie in einer URL
 
@@ -296,7 +355,7 @@ def status_schreiben():
     db().execute("INSERT INTO chat (message_id, von, text, datum) VALUES (?, 'schueler', ?, ?)",
                  (msg["id"], text, date.today().isoformat()))
     # Rueckfrage markieren; war die Nachricht schon erledigt, wird sie wieder geoeffnet
-    db().execute("UPDATE messages SET neu_vom_schueler=1, "
+    db().execute("UPDATE messages SET neu_vom_schueler=1, mail_gesendet=0, "
                  "status=CASE WHEN status='erledigt' THEN 'in Bearbeitung' ELSE status END WHERE id=?",
                  (msg["id"],))
     db().commit()
@@ -311,11 +370,18 @@ def login_required(view):
     @wraps(view)
     def wrapped(*a, **kw):
         uid = session.get("uid")
-        if not uid or not db().execute("SELECT 1 FROM users WHERE id=?", (uid,)).fetchone():
+        user = db().execute("SELECT * FROM users WHERE id=?", (uid,)).fetchone() if uid else None
+        if not user:
             session.clear()
             return redirect(url_for("login"))
+        g.user = user
         return view(*a, **kw)
     return wrapped
+
+
+def my_areas():
+    """Bereiche, deren Nachrichten der angemeldete Zugang sehen darf."""
+    return [b for b in (g.user["sections"] or "").split(",") if b in RECIPIENTS]
 
 
 @app.route("/verwaltung/login", methods=["GET", "POST"])
@@ -347,19 +413,22 @@ def logout():
 @login_required
 def inbox():
     flt = request.args.get("status", "")
-    order = "ORDER BY neu_vom_schueler DESC, id DESC"  # offene Rueckfragen zuerst
-    if flt in STATUS:
-        rows = db().execute(f"SELECT * FROM messages WHERE status=? {order}", (flt,)).fetchall()
-    else:
-        rows = db().execute(f"SELECT * FROM messages {order}").fetchall()
-    return render_template("inbox.html", rows=rows, flt=flt, statuses=STATUS)
+    areas = my_areas()
+    rows = []
+    if areas:
+        marks = ",".join("?" * len(areas))
+        where = f"empfaenger IN ({marks})" + (" AND status=?" if flt in STATUS else "")
+        args = (*areas, flt) if flt in STATUS else tuple(areas)
+        order = "ORDER BY neu_vom_schueler DESC, id DESC"  # offene Rueckfragen zuerst
+        rows = db().execute(f"SELECT * FROM messages WHERE {where} {order}", args).fetchall()
+    return render_template("inbox.html", rows=rows, flt=flt, statuses=STATUS, areas=areas, multi=len(areas) > 1)
 
 
 @app.route("/verwaltung/<int:mid>", methods=["GET", "POST"])
 @login_required
 def message(mid):
     row = db().execute("SELECT * FROM messages WHERE id=?", (mid,)).fetchone()
-    if not row:
+    if not row or row["empfaenger"] not in my_areas():  # fremde Bereiche sind nicht einmal als vorhanden erkennbar
         abort(404)
     if request.method == "POST":
         st = request.form.get("status", "")
@@ -379,6 +448,37 @@ def message(mid):
 
 
 # ---------- Befehle: flask --app app <befehl> ----------
+def _check_email(addr):
+    addr = addr.strip()
+    if addr and not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", addr):
+        raise click.ClickException("Das sieht nicht nach einer E-Mail-Adresse aus.")
+    return addr
+
+
+def send_mails(items, subject):
+    """Verschickt Mails ueber den SMTP-Server aus den Einstellungen. items: Liste von (Adresse, Text)."""
+    if not SMTP_HOST or not SMTP_FROM:
+        raise RuntimeError("SMTP_HOST und SMTP_FROM sind nicht gesetzt.")
+    ctx = ssl.create_default_context()
+    if SMTP_SECURITY == "ssl":
+        smtp = smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=15, context=ctx)
+    else:
+        smtp = smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=15)
+    with smtp:
+        if SMTP_SECURITY == "starttls":
+            smtp.starttls(context=ctx)
+        if SMTP_USER:
+            smtp.login(SMTP_USER, SMTP_PASSWORD)
+        for addr, body in items:
+            msg = EmailMessage()
+            msg["From"] = SMTP_FROM
+            msg["To"] = addr
+            msg["Subject"] = subject
+            msg["Date"] = formatdate(localtime=True)
+            msg.set_content(body)
+            smtp.send_message(msg)
+
+
 def _name(s):
     return s.strip().lower()
 
@@ -424,28 +524,47 @@ yes_option = click.option("--yes", is_flag=True, help="Ohne Rueckfrage ausfuehre
 @app.cli.command("create-user")
 @click.argument("username")
 @click.option("--role", type=ROLES, default="empfaenger")
+@click.option("--email", default="", help="E-Mail-Adresse fuer Benachrichtigungen (optional)")
+@click.option("--section", "sections", multiple=True, type=click.Choice(list(RECIPIENTS)),
+              help="Bereich, dessen Nachrichten dieser Zugang sieht und per Mail gemeldet bekommt (mehrfach moeglich)")
 @click.password_option()
-def create_user(username, role, password):
+def create_user(username, role, email, sections, password):
     """Neuen Zugang anlegen."""
     _check_pw(password)
+    email = _check_email(email)
     try:
         with cli_db() as c:
-            c.execute("INSERT INTO users (username, pw_hash, role) VALUES (?,?,?)",
-                      (_name(username), generate_password_hash(password), role))
+            c.execute("INSERT INTO users (username, pw_hash, role, email, sections) VALUES (?,?,?,?,?)",
+                      (_name(username), generate_password_hash(password), role, email,
+                       ",".join(dict.fromkeys(sections))))
     except sqlite3.IntegrityError:
         raise click.ClickException("Diesen Benutzernamen gibt es schon.")
     click.echo(f"Zugang '{username}' ({role}) angelegt.")
+    if not sections:
+        click.echo(f"Hinweis: Dieser Zugang sieht noch keine Nachrichten. Bereich zuweisen mit: "
+                   f"set-sections {_name(username)} {' '.join(RECIPIENTS)}")
 
 
 @app.cli.command("list-users")
 def list_users():
     """Alle Zugaenge anzeigen."""
     with cli_db() as c:
-        rows = c.execute("SELECT username, role FROM users ORDER BY username").fetchall()
-    for name, role in rows:
-        click.echo(f"{name}  ({role})")
+        rows = c.execute("SELECT username, role, email, sections FROM users ORDER BY username").fetchall()
+    for name, role, email, sections in rows:
+        click.echo(f"{name}  ({role})  {email or '-'}  Bereiche: {sections or '-'}")
     if not rows:
         click.echo("Noch keine Zugaenge angelegt.")
+
+
+@app.cli.command("set-sections")
+@click.argument("username")
+@click.argument("sections", nargs=-1, type=click.Choice(list(RECIPIENTS)))
+def set_sections(username, sections):
+    """Legt fest, welche Nachrichten ein Zugang sieht und per Mail gemeldet bekommt (ohne Angabe: keine)."""
+    with cli_db() as c:
+        uid, _ = _user(c, username)
+        c.execute("UPDATE users SET sections=? WHERE id=?", (",".join(dict.fromkeys(sections)), uid))
+    click.echo(f"Bereiche von '{username}': {', '.join(dict.fromkeys(sections)) or 'keine'}")
 
 
 @app.cli.command("set-password")
@@ -508,6 +627,8 @@ def stats():
     with cli_db() as c:
         total = c.execute("SELECT COUNT(*) FROM messages").fetchone()[0]
         click.echo(f"Nachrichten gesamt: {total}")
+        for k, n in c.execute("SELECT empfaenger, COUNT(*) FROM messages GROUP BY empfaenger"):
+            click.echo(f"  an {RECIPIENTS.get(k, {}).get('label', k)}: {n}")
         click.echo(f"Offene Rueckfragen: {c.execute('SELECT COUNT(*) FROM messages WHERE neu_vom_schueler=1').fetchone()[0]}")
         for st, n in c.execute("SELECT status, COUNT(*) FROM messages GROUP BY status"):
             click.echo(f"  {st}: {n}")
@@ -594,3 +715,147 @@ def backup(ziel):
     dst.close()
     os.chmod(ziel, 0o600)
     click.echo(f"Sicherung: {ziel}")
+
+
+@app.cli.command("set-email")
+@click.argument("username")
+@click.argument("adresse", required=False, default="")
+def set_email(username, adresse):
+    """E-Mail-Adresse setzen (ohne Adresse: entfernen, dann gibt es keine Benachrichtigung)."""
+    adresse = _check_email(adresse)
+    with cli_db() as c:
+        uid, _ = _user(c, username)
+        c.execute("UPDATE users SET email=? WHERE id=?", (adresse, uid))
+    click.echo("E-Mail-Adresse gesetzt." if adresse else "E-Mail-Adresse entfernt.")
+
+
+@app.cli.command("test-mail")
+@click.argument("adresse")
+def test_mail(adresse):
+    """Schickt eine Testmail, um die SMTP-Einstellungen zu pruefen."""
+    try:
+        send_mails([(_check_email(adresse), "Wenn du das liest, funktioniert der Mailversand.")],
+                   "Testmail Schul-Postfach")
+    except click.ClickException:
+        raise
+    except Exception as e:
+        raise click.ClickException(f"Mailversand fehlgeschlagen: {e}")
+    click.echo("Testmail gesendet.")
+
+
+def run_notifications(dry_run=False):
+    """Meldet Neues per Sammelmail. Jeder Zugang bekommt nur Hinweise zu seinen eigenen Bereichen.
+    Gibt eine Meldung zurueck. Wirft RuntimeError, wenn der Versand fehlschlaegt (Nachrichten bleiben dann ungemeldet)."""
+    with cli_db() as c:
+        adressen = {}  # Bereich -> Adressen der Zugaenge, die diesen Bereich betreuen
+        for email, sections in c.execute("SELECT email, sections FROM users WHERE email != ''").fetchall():
+            for b in sections.split(","):
+                if b in RECIPIENTS:
+                    adressen.setdefault(b, []).append(email)
+        neu = dict(c.execute("SELECT empfaenger, COUNT(*) FROM messages WHERE mail_gesendet=0 GROUP BY empfaenger").fetchall())
+        if not neu:
+            return "Nichts zu melden."
+        meldbar = [b for b in neu if b in adressen]
+        if not meldbar:
+            return "Es gibt Neues, aber fuer diese Bereiche hat kein Zugang eine E-Mail-Adresse."
+        if dry_run:
+            return "; ".join(f"{RECIPIENTS[b]['label']}: {neu[b]} an {len(adressen[b])} Adresse(n)"
+                             for b in meldbar) + ". Nichts gesendet."
+        # Beanspruchen (0 -> 2) in einem einzigen UPDATE: so mailen auch zwei gleichzeitige Laeufe nie doppelt
+        marks = ",".join("?" * len(meldbar))
+        rows = c.execute(f"UPDATE messages SET mail_gesendet=2 WHERE mail_gesendet=0 AND empfaenger IN ({marks}) "
+                         "RETURNING id, empfaenger", meldbar).fetchall()
+        c.commit()
+        if not rows:
+            return "Nichts zu melden."
+        ids = [r[0] for r in rows]
+        anzahl = Counter(r[1] for r in rows)
+        pro_adresse = {}
+        for b, n in anzahl.items():
+            for addr in adressen[b]:
+                pro_adresse.setdefault(addr, []).append((b, n))
+        mails = []
+        for addr, teile in pro_adresse.items():
+            zeilen = "\n".join(f"- {RECIPIENTS[b]['label']}: {n}" for b, n in teile)
+            mails.append((addr, "Im Schul-Postfach gibt es Neues (neue oder aktualisierte Nachrichten):\n"
+                                f"{zeilen}\n\nBitte melde dich an: {BASE_URL}/verwaltung\n\n"
+                                "Aus Datenschutzgruenden enthaelt diese Mail keine Inhalte."))
+        try:
+            send_mails(mails, "Neues im Schul-Postfach")
+        except Exception as e:
+            c.executemany("UPDATE messages SET mail_gesendet=0 WHERE id=? AND mail_gesendet=2", [(i,) for i in ids])
+            c.commit()
+            raise RuntimeError(f"Mailversand fehlgeschlagen: {e}")
+        c.executemany("UPDATE messages SET mail_gesendet=1 WHERE id=? AND mail_gesendet=2", [(i,) for i in ids])
+        c.commit()
+    return f"{len(mails)} Mail(s) gesendet ({len(ids)} Nachricht(en))."
+
+
+@app.cli.command("send-notifications")
+@click.option("--dry-run", is_flag=True, help="Nur anzeigen, nichts senden")
+def send_notifications(dry_run):
+    """Sammelmail an alle Empfaenger mit E-Mail-Adresse, wenn es Neues gibt."""
+    try:
+        click.echo(run_notifications(dry_run))
+    except RuntimeError as e:
+        raise click.ClickException(str(e))
+
+
+# ---------- Taeglicher automatischer Versand ----------
+def _next_run(now):
+    """Naechster Zeitpunkt aus NOTIFY_AT nach 'now' (Ortszeit in NOTIFY_TZ)."""
+    kandidaten = []
+    for t in NOTIFY_AT.split(","):
+        t = t.strip()
+        if not t:
+            continue
+        h, m = (int(x) for x in t.split(":"))
+        ziel = now.replace(hour=h, minute=m, second=0, microsecond=0)
+        if ziel <= now:
+            ziel += timedelta(days=1)
+        kandidaten.append(ziel)
+    if not kandidaten:
+        raise ValueError("NOTIFY_AT enthaelt keine Uhrzeit")
+    return min(kandidaten)
+
+
+def _seconds_until(ziel, now):
+    # ueber UTC rechnen, damit Sommer-/Winterzeit-Umstellungen stimmen
+    return (ziel.astimezone(timezone.utc) - now.astimezone(timezone.utc)).total_seconds()
+
+
+def _scheduler_loop():
+    tz = ZoneInfo(NOTIFY_TZ)
+    while True:
+        now = datetime.now(tz)
+        time.sleep(max(_seconds_until(_next_run(now), now), 0) + 1)
+        for versuch in range(1, 7):  # bei Fehlern (z. B. Mailserver nicht erreichbar) stuendlich wiederholen
+            try:
+                print("[notify]", run_notifications(), flush=True)
+                break
+            except Exception as e:
+                print(f"[notify] Fehler: {e} (Versuch {versuch}/6, naechster in 1 Stunde)", flush=True)
+                time.sleep(3600)
+
+
+def start_scheduler():
+    """Startet den taeglichen Versand im Hintergrund, falls NOTIFY_AT und SMTP gesetzt sind."""
+    if not NOTIFY_AT:
+        return
+    if not (SMTP_HOST and SMTP_FROM):
+        print("[notify] NOTIFY_AT ist gesetzt, aber SMTP_HOST/SMTP_FROM fehlen: kein automatischer Versand.", flush=True)
+        return
+    try:
+        _next_run(datetime.now(ZoneInfo(NOTIFY_TZ)))  # Zeitzone und Uhrzeiten sofort pruefen
+    except Exception as e:
+        print(f"[notify] Ungueltige Einstellung NOTIFY_AT/NOTIFY_TZ ({e}): kein automatischer Versand.", flush=True)
+        return
+    with cli_db() as c:  # nach einem Absturz haengengebliebene Markierungen wieder freigeben
+        c.execute("UPDATE messages SET mail_gesendet=0 WHERE mail_gesendet=2")
+    threading.Thread(target=_scheduler_loop, name="notify", daemon=True).start()
+    print(f"[notify] Taeglicher Versand aktiv: {NOTIFY_AT} ({NOTIFY_TZ})", flush=True)
+
+
+# nur unter Gunicorn starten (nicht bei flask-Befehlen wie create-user)
+if "gunicorn" in os.environ.get("SERVER_SOFTWARE", ""):
+    start_scheduler()
