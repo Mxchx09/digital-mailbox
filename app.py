@@ -135,7 +135,12 @@ def migrate(conn):
     ucols = {r[1] for r in conn.execute("PRAGMA table_info(users)")}
     if "email" not in ucols:
         conn.execute("ALTER TABLE users ADD COLUMN email TEXT NOT NULL DEFAULT ''")
-        conn.execute("UPDATE users SET sections=?", (",".join(RECIPIENTS),))  # bestehende Zugaenge sehen weiter alles
+    if "sections" not in ucols:
+        if "bereiche" in ucols:  # Spalte hiess frueher "bereiche": umbenennen, Zuordnungen bleiben erhalten
+            conn.execute("ALTER TABLE users RENAME COLUMN bereiche TO sections")
+        else:
+            conn.execute("ALTER TABLE users ADD COLUMN sections TEXT NOT NULL DEFAULT ''")
+            conn.execute("UPDATE users SET sections=?", (",".join(RECIPIENTS),))  # bestehende Zugaenge sehen weiter alles
     if "antwort" in cols:  # fruehere Einzelantworten in den Verlauf uebernehmen
         for mid, txt in conn.execute("SELECT id, antwort FROM messages WHERE antwort != ''").fetchall():
             conn.execute("INSERT INTO chat (message_id, von, text, datum) VALUES (?, 'empfaenger', ?, ?)",
