@@ -409,7 +409,7 @@ def logout():
     return redirect(url_for("login"))
 
 
-@app.get("/verwaltung")
+@app.get("/verwaltung/")
 @login_required
 def inbox():
     flt = request.args.get("status", "")
