@@ -1,9 +1,27 @@
 {% extends "base.html" %}
 {% block title %}Abgeschickt{% endblock %}
 {% block content %}
-<h1>Deine Nachricht ist <strong>angekommen.</strong></h1>
-<p class="lead">Mit diesem Code kannst du später nachsehen, ob es eine Antwort gibt, und Rückfragen stellen. Wir können ihn dir nicht erneut anzeigen. Notiere ihn jetzt oder speichere ihn im Browser.</p>
-<p class="code">{{ code }}</p>
+<h1>Deine Nachricht wurde gesendet</h1>
+<p class="lead">Mit diesem Code kannst du später nachsehen, ob es eine Antwort gibt und Rückfragen stellen. Wir können ihn dir nicht erneut anzeigen. Notiere ihn jetzt oder speichere ihn im Browser.</p>
+
+<div class="code-container">
+  <p class="code" id="postfach-code">
+    <span id="postfach-value">{{ code }}</span>
+    <button
+      type="button"
+      class="copy-code-button"
+      id="copy-code"
+      data-copy-target="#postfach-value"
+      aria-label="Code kopieren"
+    >
+      <img
+        class="copy-icon"
+        src="{{ url_for('static', filename='google-icons-copycontent.svg') }}"
+        alt="Code kopieren"
+      >
+    </button>
+  </p>
+</div>
 
 <form method="post" action="{{ url_for('status') }}" class="slot-form" id="speichern">
   <label for="benutzer">Name des Eintrags</label>
@@ -12,8 +30,8 @@
   <input id="code" name="code" type="password" value="{{ code }}" autocomplete="current-password" required>
   <label class="inline"><input type="checkbox" id="zeigen"> Code anzeigen</label>
   <button type="submit">Code speichern und Verlauf öffnen</button>
-  <p class="hint">Dein Browser oder Passwortmanager (z. B. Google, Apple, Firefox) fragt dann, ob er den Code speichern soll. Das ist freiwillig. Gespeicherte Einträge liegen bei dir und werden je nach Einstellung mit deinem Konto auf andere Geräte übertragen. Wer Zugriff auf dein Gerät oder Konto hat, kann deine Nachricht samt Chat lesen und sieht, dass du dieses Postfach benutzt hast. Speichere ihn <strong>nicht</strong> auf Schul-PCs oder fremden Geräten.</p>
 </form>
 <p><a href="{{ url_for('index') }}">Zurück zum Postfach</a></p>
 <script src="{{ url_for('static', filename='code.js') }}" defer></script>
+<script src="{{ url_for('static', filename='code-actions.js') }}" defer></script>
 {% endblock %}
