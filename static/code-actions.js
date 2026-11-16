@@ -1,10 +1,39 @@
 (() => {
+  const codeBox = document.getElementById("postfach-code");
+  const postfachCode = document.getElementById("postfach-value");
+  const copyButton = document.getElementById("copy-code");
+  const toggle = document.getElementById("zeigen-postfach");
+
+  if (!codeBox || !postfachCode) {
+    return;
+  }
+
+  const originalCode = postfachCode.textContent;
+  const touchQuery = window.matchMedia("(hover: none), (pointer: coarse)");
+  let codeVisible = false;
+
+  if (!touchQuery.matches && toggle) {
+    toggle.closest("label").remove();
+  }
+
+  function updateToggle() {
+    if (!toggle) {
+      return;
+    }
+
+    toggle.checked = codeVisible;
+  }
+
   function hideCode() {
     postfachCode.textContent = "•".repeat(originalCode.length);
+    codeVisible = false;
+    updateToggle();
   }
 
   function showCode() {
     postfachCode.textContent = originalCode;
+    codeVisible = true;
+    updateToggle();
   }
 
   function feedbackOnCopy() {
@@ -22,32 +51,47 @@
     popup.style.padding = "1rem 2rem";
     popup.style.borderRadius = "0.5rem";
     popup.style.zIndex = "1000";
+
+    // show for two seconds
     setTimeout(() => {
       popup.remove();
-    }, 2000); // show for two seconds
+    }, 2000);
   }
 
-  const codeBox = document.getElementById("postfach-code");
-  const postfachCode = document.getElementById("postfach-value");
-
-  // copy on button click
-  const copyButton = document.getElementById("copy-code");
-  if (copyButton && postfachCode) {
-    copyButton.addEventListener("click", () => {
-      const code = postfachCode.textContent;
-      navigator.clipboard.writeText(code).then(() => {
-        feedbackOnCopy();
-      }); // for visual feedback on copy
+  function copyCode() {
+    navigator.clipboard.writeText(originalCode).then(() => {
+      feedbackOnCopy();
     });
   }
-  
-  if (!codeBox || !postfachCode) {
-    return;
+
+  if (copyButton) {
+    copyButton.addEventListener("click", copyCode);
   }
 
-  const originalCode = postfachCode.textContent;
+  if (toggle) {
+    toggle.addEventListener("change", () => {
+      if (toggle.checked) {
+        showCode();
+      } else {
+        hideCode();
+      }
+    });
+  }
 
   hideCode();
-  codeBox.addEventListener("mouseenter", showCode);
-  codeBox.addEventListener("mouseleave", hideCode);
+  codeBox.addEventListener("mouseenter", () => {
+    if (!touchQuery.matches) {
+      showCode();
+    }
+  });
+  codeBox.addEventListener("mouseleave", () => {
+    if (!touchQuery.matches) {
+      hideCode();
+    }
+  });
+  codeBox.addEventListener("click", (event) => {
+    if (touchQuery.matches && !event.target.closest("button, label")) {
+      copyCode();
+    }
+  });
 })();
