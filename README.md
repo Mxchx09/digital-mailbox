@@ -19,7 +19,6 @@ Zuständige Empfänger erhalten Status-Updates per E-Mail.
   - [Zugänge](#zugänge)
   - [Nachrichten und Datenbank](#nachrichten-und-datenbank)
   - [Alle Empfänger abmelden](#alle-empfänger-abmelden)
-  - [Container-Logs](#container-logs)
 - [Entwicklung](#entwicklung)
   - [Linux / macOS](#linux--macos)
   - [Windows PowerShell](#windows-powershell)
@@ -186,12 +185,6 @@ die Rückfrage übersprungen.
 
 ```bash
 docker compose up -d
-```
-
-### Container-Logs
-
-```bash
-docker compose logs -f postfach
 ```
 
 ## Entwicklung
