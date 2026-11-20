@@ -1,0 +1,2 @@
+# Only needed for development/tests
+pytest>=8.0
