@@ -144,7 +144,7 @@ flask --app app remove-user NAME
 flask --app app remove-user NAME --yes
 ```
 
-Bereiche: `sv`, `sozial` und 'direktion'
+Bereiche: `sv`, `sozial` und `direktion`
 
 Rollen: `admin` und `empfaenger`.
 
