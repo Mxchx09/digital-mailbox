@@ -132,7 +132,7 @@ flask --app app set-role NAME admin
 flask --app app set-role NAME empfaenger
 
 # Bereiche festlegen; ohne Bereich sieht der Zugang keine Nachrichten
-flask --app app set-sections NAME sv sozial
+flask --app app set-sections NAME sv sozial direktion
 flask --app app set-sections NAME
 
 # E-Mail-Adresse setzen oder entfernen
@@ -144,7 +144,7 @@ flask --app app remove-user NAME
 flask --app app remove-user NAME --yes
 ```
 
-Bereiche: `sv` und `sozial`
+Bereiche: `sv`, `sozial` und 'direktion'
 
 Rollen: `admin` und `empfaenger`.
 
