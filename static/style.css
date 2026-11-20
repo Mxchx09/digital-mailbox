@@ -309,7 +309,7 @@ button.link:hover {
   border-radius: var(--radius);
   background: var(--card);
   color: var(--accent);
-  font: 700 1.0rem ui-monospace, Menlo, Consolas, monospace;
+  font: 700 1.2rem ui-monospace, Menlo, Consolas, monospace;
   letter-spacing: 0.08em;
   text-align: left;
   user-select: all;
