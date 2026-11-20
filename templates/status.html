@@ -1,11 +1,9 @@
 {% extends "base.html" %}
 {% block title %}Antwort abholen{% endblock %}
 {% block content %}
-<h1>Antwort <strong>abholen.</strong></h1>
+<h1>Antwort abholen</h1>
 {% if not msg %}
 <form method="post" action="{{ url_for('status') }}" class="slot-form">
-  <label for="benutzer">Eintrag (nur für den Passwortmanager, kann leer bleiben)</label>
-  <input id="benutzer" name="benutzer" type="text" placeholder="z. B. Postfach K7M2" autocomplete="username">
   <label for="code">Dein Code</label>
   <input id="code" name="code" type="password" placeholder="XXXX-XXXX-XXXX-XXXX" autocomplete="current-password" required>
   <label class="inline"><input type="checkbox" id="zeigen"> Code anzeigen</label>
