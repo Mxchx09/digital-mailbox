@@ -81,8 +81,8 @@ RECIPIENTS = {
         "hint": "Persönliches",
         "topics": ["Mobbing / Streit", "Persönliche Probleme", "Stress / Schule", "Sonstiges"],
     },
-    "sekretariat": {
-        "label": "Sekretariat",
+    "direktion": {
+        "label": "Direktion",
         "hint": "Verwaltung / Organisation",
         "topics": ["Organisation / Verwaltung", "Vorschläge / Feedback", "Sonstiges"],
     },
