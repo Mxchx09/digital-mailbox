@@ -81,6 +81,11 @@ RECIPIENTS = {
         "hint": "Persönliches",
         "topics": ["Mobbing / Streit", "Persönliche Probleme", "Stress / Schule", "Sonstiges"],
     },
+    "direktion": {
+        "label": "Direktion",
+        "hint": "Verwaltung / Organisation",
+        "topics": ["Organisation / Verwaltung", "Vorschläge / Feedback", "Sonstiges"],
+    },
 }
 app.jinja_env.globals["empfaenger_label"] = lambda key: RECIPIENTS.get(key, {}).get("label", key)
 STATUS = ["neu", "in Bearbeitung", "erledigt"]
