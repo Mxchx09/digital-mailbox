@@ -24,9 +24,9 @@ Zuständige Empfänger erhalten Status-Updates per E-Mail.
   - [Windows PowerShell](#windows-powershell)
   - [Anwendung starten](#anwendung-starten)
 - [Tests](#tests)
-  - [Linux / macOS](#linux--macos)
+  - [Linux / macOS](#linux-macos)
   - [Windows PowerShell](#windows-powershell)
-  - [Tests ausführen](#tests-auführen)
+  - [Tests ausführen](#tests-ausführen)
 
 ## Umgebungsvariablen
 
@@ -247,7 +247,7 @@ python -m venv .venv
 .venv\Scripts\Activate.ps1
 pip install -r requirements-dev.txt
 ```
-### Tests auführen
+### Tests ausführen
 
 Im Projektordner:
 
