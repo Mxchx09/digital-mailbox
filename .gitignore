@@ -4,3 +4,9 @@ venv/
 __pycache__/
 .env
 docker-compose.override.yml
+
+.vscode/*
+!.vscode/settings.json
+!.vscode/launch.json
+!.vscode/tasks.json
+!.vscode/extensions.json
