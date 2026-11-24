@@ -23,6 +23,9 @@ Zuständige Empfänger erhalten Status-Updates per E-Mail.
   - [Linux / macOS](#linux--macos)
   - [Windows PowerShell](#windows-powershell)
   - [Anwendung starten](#anwendung-starten)
+  - [Linux / macOS](#linux--macos-1)
+  - [Windows PowerShell](#windows-powershell-1)
+  - [Tests ausführen](#tests-ausführen)
 
 ## Umgebungsvariablen
 
@@ -223,3 +226,30 @@ Die Anwendung ist danach erreichbar unter:
 - Verwaltung: <http://127.0.0.1:5000/verwaltung/login/>
 
 `flask run` ist nur für die lokale Entwicklung vorgesehen.
+
+## Tests
+
+Tests-dependencies (`pytest`) installieren:
+
+### Linux / macOS
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+### Windows PowerShell
+
+```powershell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+```
+### Tests ausführen
+
+Im Projektordner:
+
+```bash
+pytest
+```
