@@ -12,6 +12,7 @@ random code. Flask + SQLite, deployed with Docker behind the school's reverse pr
 - **Never commit, push or open pull requests on your own.** Leave changes in the
   working tree for the user to review. Only run `git commit` / `git push` / `gh pr create`
   when the user explicitly asks for it in the current request.
+- Write tests in `tests/` for every new feature (see [Testing](#testing)).
 - Run `pytest` before reporting a change as done, and say so if tests fail.
 - Keep changes small and in the existing style; don't add dependencies, frameworks,
   build steps or new files/modules without asking.
@@ -96,17 +97,21 @@ Anonymity is the core feature. Any change must preserve:
 ## Testing
 
 ```bash
-source .venv/bin/activate        # with requirements-dev.txt installed
+source .venv/bin/activate        # with requirements.txt installed (includes pytest)
 pytest                           # all tests
 pytest -k validate               # by name
 ```
 
-- `tests/conftest.py` already gives each test a fresh temp DB, clears in-memory
-  state (`client` fixture) and **blocks real SMTP**. Use the `mail_server` fixture to
-  test mail; it records sent messages.
+Tests live in **`tests/`**:
+
+- `tests/conftest.py` – shared fixtures. It gives each test a fresh temp DB, clears
+  in-memory state (`client` fixture) and **blocks real SMTP**. Use the `mail_server`
+  fixture to test mail; it records sent messages.
+- `tests/test_app.py` – the test suite. Add new tests here, next to related ones.
 - Submitting the form in tests needs a valid `zt` token (`app.make_token()`) and
   `monkeypatch.setattr(app, "MIN_SECONDS", 0)` to skip the bot delay.
-- Add tests for new behaviour, especially anything touching anonymity, access control
+- **Always write tests for new features and changed behaviour** – a change isn't done
+  without them. This matters most for anything touching anonymity, access control
   or notifications.
 
 ## Keep docs in sync
