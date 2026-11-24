@@ -209,7 +209,7 @@ app.jinja_env.globals["csrf_token"] = csrf_token
 def protect_admin_posts():
     if request.method == "POST" and request.path.startswith("/verwaltung"):
         sent = request.form.get("csrf", "")
-        if not secrets.compare_digest(sent, session.get("csrf", "")):
+        if not sent or not secrets.compare_digest(sent, session.get("csrf", "")):
             abort(400)
 
 
