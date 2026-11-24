@@ -23,9 +23,8 @@ Zuständige Empfänger erhalten Status-Updates per E-Mail.
   - [Linux / macOS](#linux--macos)
   - [Windows PowerShell](#windows-powershell)
   - [Anwendung starten](#anwendung-starten)
-- [Tests](#tests)
-  - [Linux / macOS](#linux--macos)
-  - [Windows PowerShell](#windows-powershell)
+  - [Linux / macOS](#linux--macos-1)
+  - [Windows PowerShell](#windows-powershell-1)
   - [Tests ausführen](#tests-ausführen)
 
 ## Umgebungsvariablen
