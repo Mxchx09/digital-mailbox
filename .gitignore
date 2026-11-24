@@ -3,6 +3,7 @@ postfach.db
 venv/
 __pycache__/
 .env
+*.log
 docker-compose.override.yml
 
 .vscode/*

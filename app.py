@@ -9,12 +9,14 @@ Server-Logs (nginx/gunicorn) muessen ebenfalls ohne IP laufen, siehe README.
 import hashlib
 import hmac
 import logging
+from logging.handlers import TimedRotatingFileHandler
 import os
 import re
 import secrets
 import smtplib
 import sqlite3
 import ssl
+import sys
 import threading
 import time
 from collections import Counter
@@ -26,7 +28,7 @@ from functools import wraps
 from zoneinfo import ZoneInfo
 
 import click
-from flask import (Flask, abort, flash, g, redirect, render_template, request,
+from flask import (Flask, abort, flash, g, has_request_context, redirect, render_template, request,
                    session, url_for)
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -91,8 +93,31 @@ app.jinja_env.globals["empfaenger_label"] = lambda key: RECIPIENTS.get(key, {}).
 STATUS = ["neu", "in Bearbeitung", "erledigt"]
 CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # ohne 0/O/1/I
 
-# Keine Zugriffslogs mit IP-Adressen vom eingebauten Server
-logging.getLogger("werkzeug").disabled = True
+FMT = logging.Formatter("[%(asctime)s][%(levelname)-7s] %(name)s: %(message)s",
+                        datefmt="%Y-%m-%d %H:%M")
+logging.basicConfig(level=logging.INFO, stream=sys.stdout, force=True)
+logging.getLogger().handlers[0].setFormatter(FMT)
+logging.getLogger("werkzeug").setLevel(logging.ERROR)   # keine IPs
+
+service_log = logging.getLogger("postfach")
+audit_log = logging.getLogger("postfach.audit")
+audit_log.setLevel(logging.INFO)
+audit_log.propagate = False
+
+AUDIT_LOG = os.environ.get("AUDIT_LOG",
+                           os.path.join(os.path.dirname(os.path.abspath(DB_PATH)), "audit.log"))
+# taeglich neue Datei, 180 Tage Aufbewahrung, aeltere werden automatisch geloescht
+_h = TimedRotatingFileHandler(AUDIT_LOG, when="midnight", backupCount=180, encoding="utf-8")
+_h.setFormatter(FMT)
+audit_log.addHandler(_h)
+
+
+def audit(action, target="-", actor=None):
+    """Fester Aktionscode + Ziel, kein Freitext. Akteur: Benutzer, CLI oder system."""
+    if actor is None:
+        actor = session.get("username", "-") if has_request_context() else "CLI"
+    audit_log.info("%s %s %s", actor, action, target)
+
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS messages (
@@ -393,23 +418,31 @@ def my_areas():
 def login():
     if request.method == "POST":
         name = request.form.get("username", "").strip().lower()
+        user = db().execute("SELECT * FROM users WHERE username=?", (name,)).fetchone()
+        shown = user["username"] if user else "unbekannt"   # nie Freitext ins Log
         count, until = _fails.get(name, (0, 0))
         if count >= 5 and time.time() < until:
             flash("Zu viele Fehlversuche. Bitte warte 5 Minuten.")
             return render_template("login.html"), 429
-        user = db().execute("SELECT * FROM users WHERE username=?", (name,)).fetchone()
         if user and check_password_hash(user["pw_hash"], request.form.get("password", "")):
             _fails.pop(name, None)
             session.clear()
             session["uid"], session["role"] = user["id"], user["role"]
+            session["username"] = user["username"]
+            audit("login_ok", shown, actor=shown)
             return redirect(url_for("inbox"))
         _fails[name] = (count + 1, time.time() + 300)
         flash("Benutzername oder Passwort stimmt nicht.")
+        audit("login_fail", shown, actor="-")
+        if count + 1 == 5:  # nur beim Erreichen der Sperre, nicht bei jedem blockierten Versuch
+            audit("lockout", shown, actor="-")
     return render_template("login.html")
 
 
 @app.post("/verwaltung/logout")
 def logout():
+    name = session.get("username", "unbekannt")
+    audit("logout", target=name)
     session.clear()
     return redirect(url_for("login"))
 
@@ -447,6 +480,10 @@ def message(mid):
         db().execute("UPDATE messages SET status=?, notiz=?, neu_vom_schueler=? WHERE id=?",
                      (st, request.form.get("notiz", "")[:2000], offen, mid))
         db().commit()
+        if antwort:
+            audit("msg_reply", mid)
+        if st != row["status"]:
+            audit("msg_status", f"{mid}:{st}")
         flash("Gespeichert.")
         return redirect(url_for("message", mid=mid))
     return render_template("message.html", m=row, chat=chat_of(mid), statuses=STATUS)
@@ -542,6 +579,7 @@ def create_user(username, role, email, sections, password):
             c.execute("INSERT INTO users (username, pw_hash, role, email, sections) VALUES (?,?,?,?,?)",
                       (_name(username), generate_password_hash(password), role, email,
                        ",".join(dict.fromkeys(sections))))
+        audit("user_create", _name(username))
     except sqlite3.IntegrityError:
         raise click.ClickException("Diesen Benutzernamen gibt es schon.")
     click.echo(f"Zugang '{username}' ({role}) angelegt.")
@@ -569,6 +607,7 @@ def set_sections(username, sections):
     with cli_db() as c:
         uid, _ = _user(c, username)
         c.execute("UPDATE users SET sections=? WHERE id=?", (",".join(dict.fromkeys(sections)), uid))
+    audit("section_set", _name(username))
     click.echo(f"Bereiche von '{username}': {', '.join(dict.fromkeys(sections)) or 'keine'}")
 
 
@@ -581,6 +620,7 @@ def set_password(username, password):
     with cli_db() as c:
         uid, _ = _user(c, username)
         c.execute("UPDATE users SET pw_hash=? WHERE id=?", (generate_password_hash(password), uid))
+    audit("password_set", _name(username))
     click.echo("Passwort geaendert.")
 
 
@@ -595,6 +635,7 @@ def rename_user(old, new):
             c.execute("UPDATE users SET username=? WHERE id=?", (_name(new), uid))
     except sqlite3.IntegrityError:
         raise click.ClickException("Diesen Benutzernamen gibt es schon.")
+    audit("user_rename", f"{_name(old)}->{_name(new)}")
     click.echo("Benutzername geaendert.")
 
 
@@ -608,6 +649,7 @@ def set_role(username, role):
         if old == "admin" and role != "admin" and _is_last_admin(c, uid):
             raise click.ClickException("Das ist der letzte Admin und kann nicht herabgestuft werden.")
         c.execute("UPDATE users SET role=? WHERE id=?", (role, uid))
+    audit("role_set", f"{_name(username)}:{role}")
     click.echo(f"'{username}' ist jetzt {role}.")
 
 
@@ -623,6 +665,7 @@ def remove_user(username, yes):
         if not yes:
             click.confirm(f"Zugang '{username}' wirklich loeschen?", abort=True)
         c.execute("DELETE FROM users WHERE id=?", (uid,))
+    audit("user_remove", _name(username))
     click.echo("Zugang geloescht. Laufende Sitzungen enden beim naechsten Seitenaufruf.")
 
 
@@ -657,6 +700,7 @@ def delete_message(message_id, yes):
             click.confirm(f"Nachricht {message_id} wirklich loeschen?", abort=True)
         c.execute("DELETE FROM messages WHERE id=?", (message_id,))
     _vacuum()
+    audit("msg_delete", message_id)
     click.echo("Nachricht geloescht.")
 
 
@@ -677,6 +721,7 @@ def purge(days, only_done, yes):
             click.confirm(f"{n} Nachricht(en) vor {cutoff} loeschen?", abort=True)
         c.execute(f"DELETE {where}", (cutoff,))
     _vacuum()
+    audit("purge", f"{n}<{cutoff}")
     click.echo(f"{n} Nachricht(en) geloescht.")
 
 
@@ -690,6 +735,7 @@ def clear_messages(yes):
             click.confirm(f"Wirklich ALLE {n} Nachrichten loeschen?", abort=True)
         c.execute("DELETE FROM messages")
     _vacuum()
+    audit("clear_messages", n)
     click.echo("Alle Nachrichten geloescht.")
 
 
@@ -703,6 +749,7 @@ def reset_db(yes):
         c.executescript("DROP TABLE IF EXISTS chat; DROP TABLE IF EXISTS messages; DROP TABLE IF EXISTS users;")
         c.executescript(SCHEMA)
     _vacuum()
+    audit("reset_db")
     click.echo("Datenbank zurueckgesetzt. Lege jetzt mit create-user einen Admin an.")
 
 
@@ -719,6 +766,7 @@ def backup(ziel):
     src.close()
     dst.close()
     os.chmod(ziel, 0o600)
+    audit("backup", os.path.basename(ziel))
     click.echo(f"Sicherung: {ziel}")
 
 
@@ -731,6 +779,7 @@ def set_email(username, adresse):
     with cli_db() as c:
         uid, _ = _user(c, username)
         c.execute("UPDATE users SET email=? WHERE id=?", (adresse, uid))
+    audit("email_set", _name(username))
     click.echo("E-Mail-Adresse gesetzt." if adresse else "E-Mail-Adresse entfernt.")
 
 
@@ -745,6 +794,7 @@ def test_mail(adresse):
         raise
     except Exception as e:
         raise click.ClickException(f"Mailversand fehlgeschlagen: {e}")
+    audit("test_mail", "ok")
     click.echo("Testmail gesendet.")
 
 
@@ -790,9 +840,11 @@ def run_notifications(dry_run=False):
         except Exception as e:
             c.executemany("UPDATE messages SET mail_gesendet=0 WHERE id=? AND mail_gesendet=2", [(i,) for i in ids])
             c.commit()
+            audit("digest_failed", type(e).__name__, actor="system")
             raise RuntimeError(f"Mailversand fehlgeschlagen: {e}")
         c.executemany("UPDATE messages SET mail_gesendet=1 WHERE id=? AND mail_gesendet=2", [(i,) for i in ids])
         c.commit()
+    audit("digest_sent", f"{len(mails)}mail/{len(ids)}msg", actor="system")
     return f"{len(mails)} Mail(s) gesendet ({len(ids)} Nachricht(en))."
 
 
@@ -836,10 +888,10 @@ def _scheduler_loop():
         time.sleep(max(_seconds_until(_next_run(now), now), 0) + 1)
         for versuch in range(1, 7):  # bei Fehlern (z. B. Mailserver nicht erreichbar) stuendlich wiederholen
             try:
-                print("[notify]", run_notifications(), flush=True)
+                service_log.info("notify: %s", run_notifications())
                 break
             except Exception as e:
-                print(f"[notify] Fehler: {e} (Versuch {versuch}/6, naechster in 1 Stunde)", flush=True)
+                service_log.error("notify: Fehler %s (Versuch %d/6, naechster in 1 Stunde)", type(e).__name__, versuch)
                 time.sleep(3600)
 
 
@@ -848,17 +900,17 @@ def start_scheduler():
     if not NOTIFY_AT:
         return
     if not (SMTP_HOST and SMTP_FROM):
-        print("[notify] NOTIFY_AT ist gesetzt, aber SMTP_HOST/SMTP_FROM fehlen: kein automatischer Versand.", flush=True)
+        service_log.warning("notify: NOTIFY_AT ist gesetzt, aber SMTP_HOST/SMTP_FROM fehlen: kein automatischer Versand.")
         return
     try:
         _next_run(datetime.now(ZoneInfo(NOTIFY_TZ)))  # Zeitzone und Uhrzeiten sofort pruefen
     except Exception as e:
-        print(f"[notify] Ungueltige Einstellung NOTIFY_AT/NOTIFY_TZ ({e}): kein automatischer Versand.", flush=True)
+        service_log.warning("notify: Ungueltige Einstellung NOTIFY_AT/NOTIFY_TZ (%s): kein automatischer Versand.", e)
         return
     with cli_db() as c:  # nach einem Absturz haengengebliebene Markierungen wieder freigeben
         c.execute("UPDATE messages SET mail_gesendet=0 WHERE mail_gesendet=2")
     threading.Thread(target=_scheduler_loop, name="notify", daemon=True).start()
-    print(f"[notify] Taeglicher Versand aktiv: {NOTIFY_AT} ({NOTIFY_TZ})", flush=True)
+    service_log.info("notify: Taeglicher Versand aktiv: %s (%s)", NOTIFY_AT, NOTIFY_TZ)
 
 
 # nur unter Gunicorn starten (nicht bei flask-Befehlen wie create-user)
