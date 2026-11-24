@@ -1,6 +1,6 @@
 """
 How to run tests:
-- Activate the venv (with requirements-dev.txt installed): source .venv/bin/activate
+- Activate the venv (with requirements.txt installed): source .venv/bin/activate
 - Run all tests:            pytest
 - Run one file, verbose:    pytest -v tests/test_app.py
 - Run tests matching a name: pytest -k validate
