@@ -23,6 +23,7 @@ def client():
     # In-memory rate limit and duplicate check would otherwise leak between tests.
     app_module._recent.clear()
     app_module._seen.clear()
+    app_module._fails.clear()  # login lockouts
     with app_module.app.test_client() as c:
         yield c
 
