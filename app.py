@@ -15,6 +15,7 @@ import secrets
 import smtplib
 import sqlite3
 import ssl
+import sys
 import threading
 import time
 from collections import Counter
@@ -861,6 +862,16 @@ def start_scheduler():
     print(f"[notify] Taeglicher Versand aktiv: {NOTIFY_AT} ({NOTIFY_TZ})", flush=True)
 
 
+def _running_under_gunicorn():
+    """Gunicorn setzt SERVER_SOFTWARE erst in der WSGI-Umgebung, nicht in os.environ."""
+    if "gunicorn" in os.environ.get("SERVER_SOFTWARE", "").lower():
+        return True
+    argv0 = os.path.basename(sys.argv[0]).lower()
+    if "gunicorn" in argv0:
+        return True
+    return any(name == "gunicorn" or name.startswith("gunicorn.") for name in sys.modules)
+
+
 # nur unter Gunicorn starten (nicht bei flask-Befehlen wie create-user)
-if "gunicorn" in os.environ.get("SERVER_SOFTWARE", ""):
+if _running_under_gunicorn():
     start_scheduler()

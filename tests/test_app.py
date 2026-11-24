@@ -206,6 +206,29 @@ def test_seconds_until_handles_daylight_saving(monkeypatch):
 
 # ---------- start_scheduler() ----------
 
+@pytest.mark.parametrize("argv0, software, expected", [
+    ("gunicorn", "", True),
+    ("/usr/local/bin/gunicorn", "gunicorn/26.0", True),
+    ("flask", "", False),
+])
+def test_running_under_gunicorn(monkeypatch, argv0, software, expected):
+    monkeypatch.setattr(app.sys, "argv", [argv0])
+    monkeypatch.delitem(app.sys.modules, "gunicorn", raising=False)
+    monkeypatch.delitem(app.sys.modules, "gunicorn.app.wsgiapp", raising=False)
+    if software:
+        monkeypatch.setenv("SERVER_SOFTWARE", software)
+    else:
+        monkeypatch.delenv("SERVER_SOFTWARE", raising=False)
+    assert app._running_under_gunicorn() is expected
+
+
+def test_running_under_gunicorn_from_loaded_module(monkeypatch):
+    monkeypatch.setattr(app.sys, "argv", ["python"])
+    monkeypatch.delenv("SERVER_SOFTWARE", raising=False)
+    monkeypatch.setitem(app.sys.modules, "gunicorn.app.wsgiapp", object())
+    assert app._running_under_gunicorn() is True
+
+
 class FakeThread:
     started = []
 
