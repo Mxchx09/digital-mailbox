@@ -10,3 +10,8 @@ docker-compose.override.yml
 !.vscode/launch.json
 !.vscode/tasks.json
 !.vscode/extensions.json
+
+# Test coverage
+.coverage
+.coverage.*
+htmlcov/
