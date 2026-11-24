@@ -688,7 +688,6 @@ def test_admin_post_without_csrf_is_rejected(client):
     assert response.status_code == 400
 
 
-@pytest.mark.xfail(strict=True, reason="BUG: with no token in the session, '' == '' passes the CSRF check")
 def test_admin_post_without_any_csrf_token_is_rejected(client):
     add_user("anna", password=PASSWORD)
     response = client.post("/verwaltung/login", data={"username": "anna", "password": PASSWORD})
