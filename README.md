@@ -202,9 +202,7 @@ Schüler tut (kein Absenden, Abholen oder Antworten).
 | Betriebs-Log | Start, Mailversand-Zeitplan, Fehler | `docker compose logs postfach` |
 | Audit-Log | Wer hat was verwaltet? | `docker compose exec postfach cat /data/audit.log` |
 
-Jede Audit-Zeile hat die Form `Zeit Akteur Aktion Ziel`. Der Akteur ist ein
-Benutzername, `CLI` (Befehl im Container) oder `system` (Mailversand).
-Die Zeit ist auf die Minute genau. Pro Tag gibt es eine neue Datei, nach
+Pro Tag gibt es eine neue Datei, nach
 180 Tagen werden alte Dateien automatisch gelöscht.
 
 | Bereich | Aktionen |
@@ -217,7 +215,7 @@ Die Zeit ist auf die Minute genau. Pro Tag gibt es eine neue Datei, nach
 
 Bei `login_fail` steht der Benutzername nur, wenn er existiert, sonst
 `unbekannt`. Passwörter, Codes und Nachrichtentexte werden nie geloggt.
-Das Audit-Log liegt im Volume `postfach-data`. Eine Kopie holst du so:
+Das Audit-Log liegt im Volume `postfach-data`. Eine Kopie holst man so:
 
 ```bash
 docker cp "$(docker compose ps -q postfach)":/data/audit.log ./audit.log
