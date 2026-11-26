@@ -6,6 +6,7 @@ How to run tests:
 - Run tests matching a name: pytest -k validate
 """
 
+import logging
 import os
 import re
 import sqlite3
@@ -229,21 +230,21 @@ def test_scheduler_off_without_notify_at(fake_thread, mail_server, monkeypatch):
     assert fake_thread.started == []
 
 
-def test_scheduler_off_without_smtp(fake_thread, monkeypatch, capsys):
+def test_scheduler_off_without_smtp(fake_thread, monkeypatch, caplog):
     monkeypatch.setattr(app, "NOTIFY_AT", "07:00")
     app.start_scheduler()
     assert fake_thread.started == []
-    assert "SMTP_HOST" in capsys.readouterr().out
+    assert "SMTP_HOST" in caplog.text
 
 
 @pytest.mark.parametrize("notify_at, tz", [("7 Uhr", "Europe/Vienna"), ("25:00", "Europe/Vienna"),
                                            ("07:00", "Mars/Olympus")])
-def test_scheduler_off_with_bad_settings(fake_thread, mail_server, monkeypatch, capsys, notify_at, tz):
+def test_scheduler_off_with_bad_settings(fake_thread, mail_server, monkeypatch, caplog, notify_at, tz):
     monkeypatch.setattr(app, "NOTIFY_AT", notify_at)
     monkeypatch.setattr(app, "NOTIFY_TZ", tz)
     app.start_scheduler()
     assert fake_thread.started == []
-    assert "Ungueltige" in capsys.readouterr().out
+    assert "Ungueltige" in caplog.text
 
 
 def test_scheduler_starts_and_releases_stuck_messages(fake_thread, mail_server, monkeypatch):
@@ -277,17 +278,17 @@ def fake_sleep(monkeypatch):
     return sleeps
 
 
-def test_scheduler_loop_sends_once_per_day(fake_sleep, monkeypatch, capsys):
+def test_scheduler_loop_sends_once_per_day(fake_sleep, monkeypatch, caplog):
     runs = []
     monkeypatch.setattr(app, "run_notifications", lambda: runs.append(1) or "1 Mail(s) gesendet")
     with pytest.raises(StopLoop):
         app._scheduler_loop()
     assert runs == [1]
     assert len(fake_sleep) == 1 and 0 < fake_sleep[0] <= 24 * 3600 + 1  # waits until 07:00
-    assert "[notify] 1 Mail(s) gesendet" in capsys.readouterr().out
+    assert "notify: 1 Mail(s) gesendet" in caplog.text
 
 
-def test_scheduler_loop_retries_hourly_then_gives_up(fake_sleep, monkeypatch, capsys):
+def test_scheduler_loop_retries_hourly_then_gives_up(fake_sleep, monkeypatch, caplog):
     attempts = []
 
     def failing():
@@ -299,8 +300,8 @@ def test_scheduler_loop_retries_hourly_then_gives_up(fake_sleep, monkeypatch, ca
         app._scheduler_loop()
     assert len(attempts) == 6  # then waits for the next day instead of trying forever
     assert fake_sleep[1:] == [3600] * 6
-    out = capsys.readouterr().out
-    assert "Versuch 1/6" in out and "Versuch 6/6" in out
+    assert "Versuch 1/6" in caplog.text and "Versuch 6/6" in caplog.text
+    assert "Server nicht erreichbar" not in caplog.text  # only the error type, never details
 
 
 def test_scheduler_loop_stops_retrying_after_success(fake_sleep, monkeypatch):
@@ -1332,3 +1333,184 @@ def test_cli_test_mail_reports_server_error(mail_server):
     result = cli("test-mail", "anna@schule.test")
     assert result.exit_code != 0
     assert "nicht erreichbar" in result.output
+
+
+# ========== Logging ==========
+
+# ---------- audit() ----------
+
+def test_audit_line_format(audit_lines):
+    app.audit("msg_status", "7:erledigt", actor="anna")
+    assert audit_lines == ["anna msg_status 7:erledigt"]
+
+
+def test_audit_actor_is_cli_outside_requests(audit_lines):
+    app.audit("reset_db")
+    assert audit_lines == ["CLI reset_db -"]
+
+
+def test_audit_actor_from_session(audit_lines):
+    with app.app.test_request_context():
+        app.session["username"] = "anna"
+        app.audit("msg_reply", 3)
+    assert audit_lines == ["anna msg_reply 3"]
+
+
+def test_audit_actor_unknown_without_login(audit_lines):
+    with app.app.test_request_context():
+        app.audit("logout", "unbekannt")
+    assert audit_lines == ["- logout unbekannt"]
+
+
+def test_audit_log_goes_to_rotating_file_only():
+    assert app.audit_log.propagate is False  # not mixed into the service log on stdout
+    assert app._h.baseFilename == os.path.abspath(app.AUDIT_LOG)
+    assert app._h.when == "MIDNIGHT"
+    assert app._h.backupCount == 180
+    app.audit("test_mail", "datei-test")
+    app._h.flush()
+    with open(app.AUDIT_LOG, encoding="utf-8") as f:
+        assert "CLI test_mail datei-test" in f.read()
+
+
+def test_werkzeug_access_log_stays_off():
+    # werkzeug's request log contains client IPs
+    assert not logging.getLogger("werkzeug").isEnabledFor(logging.INFO)
+
+
+# ---------- web: login, logout, messages ----------
+
+def test_audit_login_ok(client, audit_lines):
+    add_user("anna", password=PASSWORD)
+    login_form(client, " Anna ", PASSWORD)
+    assert audit_lines == ["anna login_ok anna"]
+
+
+def test_audit_login_fail_known_user(client, audit_lines):
+    add_user("anna", password=PASSWORD)
+    login_form(client, "anna", "falsch")
+    assert audit_lines == ["- login_fail anna"]
+
+
+def test_audit_login_fail_never_logs_typed_name(client, audit_lines):
+    # People type their password into the username field; that must never end up in a log.
+    login_form(client, PASSWORD, "egal")
+    assert audit_lines == ["- login_fail unbekannt"]
+    assert not any(PASSWORD in line for line in audit_lines)
+
+
+def test_audit_lockout_logged_once(client, audit_lines):
+    add_user("anna", password=PASSWORD)
+    for _ in range(7):  # attempts 6 and 7 are blocked and not logged again
+        login_form(client, "anna", "falsch")
+    assert audit_lines.count("- login_fail anna") == 5
+    assert audit_lines.count("- lockout anna") == 1
+    assert audit_lines.index("- lockout anna") == 5  # right after the 5th failure
+
+
+def test_audit_logout(client, audit_lines):
+    add_user("anna", password=PASSWORD)
+    login_form(client, "anna", PASSWORD)
+    with client.session_transaction() as s:
+        s["csrf"] = "csrf"  # login clears the session, including the old token
+    client.post("/verwaltung/logout", data={"csrf": "csrf"})
+    assert audit_lines == ["anna login_ok anna", "anna logout anna"]
+
+
+def test_audit_message_reply_and_status(client, audit_lines):
+    log_in(client, add_user("anna"))
+    with client.session_transaction() as s:
+        s["username"] = "anna"
+    mid = add_message()
+    client.post(f"/verwaltung/{mid}", data={"csrf": "csrf", "status": "in Bearbeitung",
+                                            "antwort": "Geheime Antwort", "notiz": "Geheime Notiz"})
+    assert audit_lines == [f"anna msg_reply {mid}", f"anna msg_status {mid}:in Bearbeitung"]
+    assert not any("Geheim" in line for line in audit_lines)  # never content
+
+
+def test_audit_message_note_only_not_logged(client, audit_lines):
+    log_in(client, add_user("anna"))
+    mid = add_message()
+    client.post(f"/verwaltung/{mid}", data={"csrf": "csrf", "status": "neu", "notiz": "später"})
+    assert audit_lines == []
+
+
+def test_student_actions_are_not_logged(client, audit_lines, caplog, monkeypatch):
+    monkeypatch.setattr(app, "MIN_SECONDS", 0)
+    code = re.search(CODE_RE, html_of(send_form(client))).group()
+    client.post("/status", data={"code": code})
+    client.post("/status/schreiben", data={"code": code, "text": "Noch eine Frage"})
+    assert audit_lines == []
+    assert [r for r in caplog.records if r.name.startswith("postfach")] == []
+
+
+# ---------- CLI ----------
+
+@pytest.mark.parametrize("args, expected", [
+    (["create-user", "Carl", "--password", PASSWORD], "CLI user_create carl"),
+    (["set-sections", "Anna", "sv"], "CLI section_set anna"),
+    (["set-password", "anna", "--password", PASSWORD], "CLI password_set anna"),
+    (["rename-user", "Anna", "Anja"], "CLI user_rename anna->anja"),
+    (["set-role", "anna", "empfaenger"], "CLI role_set anna:empfaenger"),
+    (["remove-user", "anna", "--yes"], "CLI user_remove anna"),
+    (["set-email", "anna", "anna@schule.test"], "CLI email_set anna"),
+    (["delete-message", "1", "--yes"], "CLI msg_delete 1"),
+    (["purge", "--days", "30", "--yes"], f"CLI purge 1<{(date.today() - timedelta(days=30)).isoformat()}"),
+    (["clear-messages", "--yes"], "CLI clear_messages 1"),
+    (["reset-db", "--yes"], "CLI reset_db -"),
+])
+def test_audit_cli_commands(audit_lines, args, expected):
+    add_user("anna", role="admin")
+    add_user("bert", role="admin")
+    add_message(datum="2026-01-01")
+    result = cli(*args)
+    assert result.exit_code == 0, result.output
+    assert audit_lines == [expected]
+
+
+def test_audit_cli_failed_commands_not_logged(audit_lines):
+    add_user("anna", role="admin")
+    cli("set-role", "anna", "empfaenger")         # last admin
+    cli("remove-user", "anna", input="n\n")       # aborted
+    cli("set-email", "niemand", "x@schule.test")  # unknown user
+    cli("delete-message", "99", "--yes")          # unknown message
+    assert audit_lines == []
+
+
+def test_audit_cli_backup_logs_file_name_only(audit_lines, tmp_path):
+    ziel = tmp_path / "sicherung.db"
+    assert cli("backup", str(ziel)).exit_code == 0
+    assert audit_lines == ["CLI backup sicherung.db"]
+
+
+def test_audit_cli_test_mail(mail_server, audit_lines):
+    cli("test-mail", "anna@schule.test")
+    assert audit_lines == ["CLI test_mail ok"]
+    assert not any("anna@schule.test" in line for line in audit_lines)
+
+
+# ---------- notifications ----------
+
+def test_audit_digest_sent(mail_server, audit_lines):
+    add_user("anna", "anna@schule.test")
+    add_message("sv")
+    add_message("sv", "Noch eine andere Nachricht an die SV")
+    app.run_notifications()
+    assert audit_lines == ["system digest_sent 1mail/2msg"]
+
+
+def test_audit_digest_failed_logs_error_type_only(mail_server, audit_lines):
+    add_user("anna", "anna@schule.test")
+    add_message("sv")
+    mail_server.fail = ConnectionRefusedError("smtp.test.invalid nicht erreichbar")
+    with pytest.raises(RuntimeError):
+        app.run_notifications()
+    assert audit_lines == ["system digest_failed ConnectionRefusedError"]
+
+
+def test_audit_digest_nothing_to_do_or_dry_run_not_logged(mail_server, audit_lines):
+    app.run_notifications()
+    add_user("anna", "anna@schule.test")
+    add_message("sv")
+    app.run_notifications(dry_run=True)
+    assert audit_lines == []

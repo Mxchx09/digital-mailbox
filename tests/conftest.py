@@ -1,4 +1,5 @@
 """Shared test setup."""
+import logging
 import os
 import sqlite3
 import sys
@@ -35,6 +36,22 @@ def fresh_db(tmp_path, monkeypatch):
     with closing(sqlite3.connect(path)) as c:
         app_module.migrate(c)
         c.commit()
+
+
+@pytest.fixture
+def audit_lines():
+    """Records audit log entries as 'actor action target'. The audit logger doesn't
+    propagate to the root logger, so `caplog` can't see it."""
+    lines = []
+
+    class Recorder(logging.Handler):
+        def emit(self, record):
+            lines.append(record.getMessage())
+
+    handler = Recorder()
+    app_module.audit_log.addHandler(handler)
+    yield lines
+    app_module.audit_log.removeHandler(handler)
 
 
 # ========== E-Mail ==========

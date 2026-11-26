@@ -19,6 +19,7 @@ Zuständige Empfänger erhalten Status-Updates per E-Mail.
   - [Zugänge](#zugänge)
   - [Nachrichten und Datenbank](#nachrichten-und-datenbank)
   - [Alle Empfänger abmelden](#alle-empfänger-abmelden)
+- [Logs](#logs)
 - [Entwicklung](#entwicklung)
   - [Linux / macOS](#linux--macos)
   - [Windows PowerShell](#windows-powershell)
@@ -45,6 +46,7 @@ oder der `.env` Datei gesetzt werden.
 | `SMTP_USER` | SMTP-Benutzername, falls erforderlich. | leer | leer |
 | `SMTP_PASSWORD` | SMTP-Passwort, falls erforderlich. | leer | leer |
 | `SMTP_FROM` | Absenderadresse für Benachrichtigungen. | leer | leer |
+| `AUDIT_LOG` | Pfad der Audit-Logdatei. | `audit.log` neben der Datenbank | `/data/audit.log` |
 | `NOTIFY_AT` | Versandzeiten, z. B. `07:00` oder `07:00,15:00`. Leer: deaktiviert. | leer | `07:00` |
 | `NOTIFY_TZ` | Zeitzone für `NOTIFY_AT`. | `Europe/Vienna` | `Europe/Vienna` |
 
@@ -188,6 +190,35 @@ die Rückfrage übersprungen.
 
 ```bash
 docker compose up -d
+```
+
+## Logs
+
+Es gibt zwei Logs. Beide enthalten **keine IP-Adressen** und nichts, was ein
+Schüler tut (kein Absenden, Abholen oder Antworten).
+
+| Log | Inhalt | Ansehen |
+|---|---|---|
+| Betriebs-Log | Start, Mailversand-Zeitplan, Fehler | `docker compose logs postfach` |
+| Audit-Log | Wer hat was verwaltet? | `docker compose exec postfach cat /data/audit.log` |
+
+Pro Tag gibt es eine neue Datei, nach
+180 Tagen werden alte Dateien automatisch gelöscht.
+
+| Bereich | Aktionen |
+|---|---|
+| Login | `login_ok`, `login_fail`, `lockout`, `logout` |
+| Nachrichten (Web) | `msg_reply`, `msg_status` |
+| Zugänge | `user_create`, `user_remove`, `user_rename`, `password_set`, `role_set`, `section_set`, `email_set` |
+| Nachrichten und Datenbank (CLI) | `msg_delete`, `purge`, `clear_messages`, `reset_db`, `backup` |
+| Mail | `digest_sent`, `digest_failed`, `test_mail` |
+
+Bei `login_fail` steht der Benutzername nur, wenn er existiert, sonst
+`unbekannt`. Passwörter, Codes und Nachrichtentexte werden nie geloggt.
+Das Audit-Log liegt im Volume `postfach-data`. Eine Kopie holst man so:
+
+```bash
+docker cp "$(docker compose ps -q postfach)":/data/audit.log ./audit.log
 ```
 
 ## Entwicklung
